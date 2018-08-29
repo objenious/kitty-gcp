@@ -38,7 +38,7 @@ func TestServer(t *testing.T) {
 	shutdownCalled := false
 	ctx, cancel := context.WithCancel(context.Background())
 	exitError := make(chan error)
-	tr := NewCloudTasksClient().
+	tr := NewCloudTasksTransport().
 		Endpoint(queueName, 1, 60, testEP, decode)
 	srv := kitty.NewServer(tr).Shutdown(func() {
 		shutdownCalled = true
@@ -50,7 +50,7 @@ func TestServer(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	{
-		_, err := send(ctx, queueName, tr, []byte(`{"foo":"bar"}`), time.Millisecond)
+		_, err := send(ctx, queueName, tr.googleCloudTasksClient, []byte(`{"foo":"bar"}`), time.Millisecond)
 		if err != nil {
 			t.Errorf("send to cloud tasks : %s", err)
 		} else {
@@ -94,7 +94,7 @@ func TestCloudTasksClient(t *testing.T) {
 		t.Log("Given a Cloud Tasks client")
 		ctx := context.TODO()
 		ch := make(chan interface{})
-		ctClient := NewCloudTasksClient().
+		ctClient := NewCloudTasksTransport().
 			Endpoint(queueName, 1, 60, func(ctx context.Context, r interface{}) (interface{}, error) {
 				ch <- r
 				return nil, nil
@@ -105,7 +105,8 @@ func TestCloudTasksClient(t *testing.T) {
 		data, err := json.Marshal(msg)
 		assert.NoError(t, err)
 		ctClient.googleCloudTasksClient, err = cloudtasks.NewClient(ctx)
-		_, err = send(ctx, queueName, ctClient, data, 1)
+		assert.NoError(t, err)
+		_, err = send(ctx, queueName, ctClient.googleCloudTasksClient, data, 1)
 
 		t.Log("Then, I should not get any error")
 		assert.NoError(t, err)
@@ -114,7 +115,7 @@ func TestCloudTasksClient(t *testing.T) {
 		var c = make(chan bool, 1)
 
 		go func() {
-			ctClient.RegisterEndpoints(func(e endpoint.Endpoint) endpoint.Endpoint {
+			err := ctClient.RegisterEndpoints(func(e endpoint.Endpoint) endpoint.Endpoint {
 				MsgRead := &msgTest{}
 				err := json.Unmarshal(data, MsgRead)
 				assert.NoError(t, err)
@@ -122,7 +123,9 @@ func TestCloudTasksClient(t *testing.T) {
 				c <- true // listen done => terminate test
 				return nil
 			}, nil)
-			ctClient.Start(ctx)
+			assert.NoError(t, err)
+			err = ctClient.Start(ctx)
+			assert.NoError(t, err)
 		}()
 
 		// In case of the message is not received, we wait 10 seconds max.
@@ -140,7 +143,7 @@ func TestCloudTasksClient(t *testing.T) {
 }
 
 // Send sends a message to a Cloud Tasks queue. The queue must already exist.
-func send(ctx context.Context, QueueName string, ctc *CloudTasksClient, data []byte, delay time.Duration) (*taskspb.Task, error) {
+func send(ctx context.Context, QueueName string, ctc *cloudtasks.Client, data []byte, delay time.Duration) (*taskspb.Task, error) {
 	schTime := time.Now().Add(delay)
 	timestamp := timestamp.Timestamp{
 		Seconds: schTime.Unix(),
@@ -156,6 +159,6 @@ func send(ctx context.Context, QueueName string, ctc *CloudTasksClient, data []b
 			},
 		},
 	}
-	resp, err := ctc.googleCloudTasksClient.CreateTask(ctx, req)
+	resp, err := ctc.CreateTask(ctx, req)
 	return resp, errors.Wrap(err, "create task")
 }

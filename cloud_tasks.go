@@ -16,18 +16,18 @@ import (
 	taskspb "google.golang.org/genproto/googleapis/cloud/tasks/v2beta2"
 )
 
-// CloudTasksClient is the Cloud Tasks client
-type CloudTasksClient struct {
+// CloudTasksTransport is the Cloud Tasks Transport
+type CloudTasksTransport struct {
 	googleCloudTasksClient *cloudtasks.Client
 	closed                 bool
 	endpoints              []*cloudtaskendpoint
 }
 
-var _ kitty.Transport = &CloudTasksClient{}
+var _ kitty.Transport = &CloudTasksTransport{}
 
-// NewCloudTasksClient creates a new Cloud Tasks client.
-func NewCloudTasksClient() *CloudTasksClient {
-	return &CloudTasksClient{}
+// NewCloudTasksTransport creates a new Cloud Tasks client.
+func NewCloudTasksTransport() *CloudTasksTransport {
+	return &CloudTasksTransport{}
 }
 
 type cloudtaskendpoint struct {
@@ -38,8 +38,11 @@ type cloudtaskendpoint struct {
 	decode             func([]byte) (interface{}, error)
 }
 
+// TaskDecoder is a function to decode task payload and return structured data
+type TaskDecoder func([]byte) (interface{}, error)
+
 // Start starts pulling msg from Cloud Tasks.
-func (ctc *CloudTasksClient) Start(ctx context.Context) error {
+func (ctc *CloudTasksTransport) Start(ctx context.Context) error {
 	logger := log.LoggerFromContext(ctx)
 	var err error
 	ctc.googleCloudTasksClient, err = cloudtasks.NewClient(ctx)
@@ -69,14 +72,14 @@ func (ctc *CloudTasksClient) Start(ctx context.Context) error {
 	}
 }
 
-// Shutdown shutdowns the cloud tasks client
-func (ctc *CloudTasksClient) Shutdown(ctx context.Context) error {
+// Shutdown shutdowns the cloud tasks transport
+func (ctc *CloudTasksTransport) Shutdown(ctx context.Context) error {
 	ctc.closed = true
 	return ctc.googleCloudTasksClient.Close()
 }
 
 // RegisterEndpoints register endpoint
-func (ctc *CloudTasksClient) RegisterEndpoints(m endpoint.Middleware, fn kitty.AddLoggerToContextFn) error {
+func (ctc *CloudTasksTransport) RegisterEndpoints(m endpoint.Middleware, fn kitty.AddLoggerToContextFn) error {
 	for _, e := range ctc.endpoints {
 		m(e.endpoint)
 	}
@@ -84,7 +87,7 @@ func (ctc *CloudTasksClient) RegisterEndpoints(m endpoint.Middleware, fn kitty.A
 }
 
 // Endpoint registers endpoint
-func (ctc *CloudTasksClient) Endpoint(queueName string, maxTasks int32, leaseTimeInSecond int64, ep endpoint.Endpoint, decode func([]byte) (interface{}, error)) *CloudTasksClient {
+func (ctc *CloudTasksTransport) Endpoint(queueName string, maxTasks int32, leaseTimeInSecond int64, ep endpoint.Endpoint, decode TaskDecoder) *CloudTasksTransport {
 	e := &cloudtaskendpoint{
 		maxTasks:           maxTasks,
 		leaseTimeInSeconds: leaseTimeInSecond,
@@ -96,7 +99,7 @@ func (ctc *CloudTasksClient) Endpoint(queueName string, maxTasks int32, leaseTim
 	return ctc
 }
 
-func (ctc *CloudTasksClient) process(ctx context.Context, e *cloudtaskendpoint, msg *taskspb.Task) {
+func (ctc *CloudTasksTransport) process(ctx context.Context, e *cloudtaskendpoint, msg *taskspb.Task) {
 
 	logger := log.New("task_id", msg.Name)
 	ctx = log.ContextWithLogger(ctx, logger)
@@ -118,19 +121,7 @@ func (ctc *CloudTasksClient) process(ctx context.Context, e *cloudtaskendpoint, 
 	start := time.Now()
 	pm := msg.GetPullMessage()
 	data := pm.GetPayload()
-	var err error
-	for _, e := range ctc.endpoints {
-		s, er := e.decode(data)
-		if er != nil {
-			err = er
-			break
-		}
-		_, er = e.endpoint(ctx, s)
-		if er != nil {
-			err = er
-			break
-		}
-	}
+	err := ctc.notifyEndpoints(ctx, data)
 	if err != nil {
 		delay := getDelay(err)
 		if delay == 0 {
@@ -158,7 +149,21 @@ func (ctc *CloudTasksClient) process(ctx context.Context, e *cloudtaskendpoint, 
 	}
 }
 
-func (ctc *CloudTasksClient) leaseTasks(ctx context.Context, e *cloudtaskendpoint) ([]*taskspb.Task, error) {
+func (ctc *CloudTasksTransport) notifyEndpoints(ctx context.Context, data []byte) error {
+	for _, e := range ctc.endpoints {
+		s, err := e.decode(data)
+		if err != nil {
+			return err
+		}
+		_, err = e.endpoint(ctx, s)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (ctc *CloudTasksTransport) leaseTasks(ctx context.Context, e *cloudtaskendpoint) ([]*taskspb.Task, error) {
 	tasksResp, err := ctc.googleCloudTasksClient.LeaseTasks(ctx, &taskspb.LeaseTasksRequest{
 		Parent:   e.queueName,
 		MaxTasks: e.maxTasks,
@@ -170,7 +175,7 @@ func (ctc *CloudTasksClient) leaseTasks(ctx context.Context, e *cloudtaskendpoin
 	return tasksResp.Tasks, errors.Wrapf(err, "getting messages from %s", e.queueName)
 }
 
-func (ctc *CloudTasksClient) ack(ctx context.Context, t *taskspb.Task) (err error) {
+func (ctc *CloudTasksTransport) ack(ctx context.Context, t *taskspb.Task) (err error) {
 	err = ctc.googleCloudTasksClient.AcknowledgeTask(ctx, &taskspb.AcknowledgeTaskRequest{
 		Name:         t.Name,
 		ScheduleTime: t.ScheduleTime,
@@ -178,7 +183,7 @@ func (ctc *CloudTasksClient) ack(ctx context.Context, t *taskspb.Task) (err erro
 	return errors.Wrap(err, "ack")
 }
 
-func (ctc *CloudTasksClient) nack(ctx context.Context, t *taskspb.Task) (err error) {
+func (ctc *CloudTasksTransport) nack(ctx context.Context, t *taskspb.Task) (err error) {
 	_, err = ctc.googleCloudTasksClient.CancelLease(ctx, &taskspb.CancelLeaseRequest{
 		Name:         t.Name,
 		ScheduleTime: t.ScheduleTime, // this is required to make sure that our worker hold the lease
@@ -187,7 +192,7 @@ func (ctc *CloudTasksClient) nack(ctx context.Context, t *taskspb.Task) (err err
 }
 
 // nackWithDelay extends the lease until it expires, so a worker can take it back to create a delayed Nack
-func (ctc *CloudTasksClient) nackWithDelay(ctx context.Context, t *taskspb.Task, delay time.Duration) (err error) {
+func (ctc *CloudTasksTransport) nackWithDelay(ctx context.Context, t *taskspb.Task, delay time.Duration) (err error) {
 	if delay < time.Second {
 		delay = time.Second
 	}
@@ -210,7 +215,8 @@ func (ctc *CloudTasksClient) nackWithDelay(ctx context.Context, t *taskspb.Task,
 }
 
 // delayabler defines an error with a retry delay
-type delayabler interface {
+// COMMENTED not used : à exporter pour un usage par les endpoints ?
+/*type delayabler interface {
 	Delay() time.Duration
 }
 
@@ -228,7 +234,7 @@ func delaybleError(err error, delay time.Duration) error {
 
 func (err *delaybleErr) Delay() time.Duration {
 	return err.delay
-}
+}*/
 
 func getDelay(err error) time.Duration {
 	type causer interface {
@@ -236,9 +242,9 @@ func getDelay(err error) time.Duration {
 	}
 
 	for err != nil {
-		if retry, ok := err.(delayabler); ok {
+		/*if retry, ok := err.(delayabler); ok {
 			return retry.Delay()
-		}
+		}*/
 		cause, ok := err.(causer)
 		if !ok {
 			break
