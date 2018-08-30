@@ -39,6 +39,7 @@ type TaskDecoder func([]byte) (interface{}, error)
 func (t *Transport) Start(ctx context.Context) error {
 	var err error
 	t.gctc, err = tasksapi.NewClient(ctx)
+HandleError:
 	if err != nil {
 		return err
 	}
@@ -51,15 +52,14 @@ func (t *Transport) Start(ctx context.Context) error {
 			for _, e := range t.endpoints {
 				msgs, err := t.leaseTasks(ctx, e)
 				if err != nil {
-					break
+					goto HandleError
 				}
 				for i := range msgs {
-					t.process(ctx, e, msgs[i])
+					err = t.process(ctx, e, msgs[i])
+					if err != nil {
+						goto HandleError
+					}
 				}
-			}
-			if err != nil {
-				t.gctc.Close()
-				return nil
 			}
 		}
 	}
