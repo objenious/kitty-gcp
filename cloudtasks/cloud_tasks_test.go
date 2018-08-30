@@ -95,7 +95,7 @@ func TestCloudTasksClient(t *testing.T) {
 		ctx := context.TODO()
 		ch := make(chan interface{})
 		tr := NewTransport().
-			Endpoint(queueName, 1, 60, func(ctx context.Context, r interface{}) (interface{}, error) {
+			Endpoint(queueName, 1, time.Minute, func(ctx context.Context, r interface{}) (interface{}, error) {
 				ch <- r
 				return nil, nil
 			}, decode)
@@ -106,7 +106,7 @@ func TestCloudTasksClient(t *testing.T) {
 		assert.NoError(t, err)
 		tr.gctc, err = cloudtasks.NewClient(ctx)
 		assert.NoError(t, err)
-		_, err = send(ctx, queueName, tr.gctc, data, 1)
+		_, err = send(ctx, queueName, tr.gctc, data, time.Minute)
 
 		t.Log("Then, I should not get any error")
 		assert.NoError(t, err)
@@ -122,7 +122,7 @@ func TestCloudTasksClient(t *testing.T) {
 				assert.Equal(t, "hello", MsgRead.Msg)
 				c <- true // listen done => terminate test
 				return nil
-			}, nil)
+			})
 			assert.NoError(t, err)
 			err = tr.Start(ctx)
 			assert.NoError(t, err)

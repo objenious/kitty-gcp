@@ -5,7 +5,7 @@ import (
 	"time"
 
 	tasksapi "cloud.google.com/go/cloudtasks/apiv2beta2"
-	kitendpoint "github.com/go-kit/kit/endpoint"
+	"github.com/go-kit/kit/endpoint"
 	"github.com/golang/protobuf/ptypes/duration"
 	"github.com/objenious/kitty"
 	taskspb "google.golang.org/genproto/googleapis/cloud/tasks/v2beta2"
@@ -14,7 +14,7 @@ import (
 // Transport is the Cloud Tasks Transport
 type Transport struct {
 	gctc      *tasksapi.Client
-	endpoints []*endpoint
+	endpoints []*Endpoint
 }
 
 var _ kitty.Transport = &Transport{}
@@ -24,9 +24,10 @@ func NewTransport() *Transport {
 	return &Transport{}
 }
 
-type endpoint struct {
+// Endpoint for Cloud Tasks transport
+type Endpoint struct {
 	queueName string
-	endpoint  kitendpoint.Endpoint
+	endpoint  endpoint.Endpoint
 	maxTasks  int32
 	leaseTime time.Duration
 	decode    func([]byte) (interface{}, error)
@@ -39,11 +40,11 @@ type TaskDecoder func([]byte) (interface{}, error)
 func (t *Transport) Start(ctx context.Context) error {
 	var err error
 	t.gctc, err = tasksapi.NewClient(ctx)
-HandleError:
 	if err != nil {
 		return err
 	}
 	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -52,12 +53,12 @@ HandleError:
 			for _, e := range t.endpoints {
 				msgs, err := t.leaseTasks(ctx, e)
 				if err != nil {
-					goto HandleError
+					return err
 				}
 				for i := range msgs {
 					err = t.process(ctx, e, msgs[i])
 					if err != nil {
-						goto HandleError
+						return err
 					}
 				}
 			}
@@ -71,7 +72,7 @@ func (t *Transport) Shutdown(ctx context.Context) error {
 }
 
 // RegisterEndpoints register endpoint
-func (t *Transport) RegisterEndpoints(m kitendpoint.Middleware, fn kitty.AddLoggerToContextFn) error {
+func (t *Transport) RegisterEndpoints(m endpoint.Middleware) error {
 	for _, e := range t.endpoints {
 		e.endpoint = m(e.endpoint)
 	}
@@ -79,8 +80,8 @@ func (t *Transport) RegisterEndpoints(m kitendpoint.Middleware, fn kitty.AddLogg
 }
 
 // Endpoint registers endpoint
-func (t *Transport) Endpoint(queueName string, maxTasks int32, leaseTime time.Duration, ep kitendpoint.Endpoint, decode TaskDecoder) *Transport {
-	e := &endpoint{
+func (t *Transport) Endpoint(queueName string, maxTasks int32, leaseTime time.Duration, ep endpoint.Endpoint, decode TaskDecoder) *Transport {
+	e := &Endpoint{
 		maxTasks:  maxTasks,
 		leaseTime: leaseTime,
 		queueName: queueName,
@@ -91,7 +92,7 @@ func (t *Transport) Endpoint(queueName string, maxTasks int32, leaseTime time.Du
 	return t
 }
 
-func (t *Transport) process(ctx context.Context, e *endpoint, msg *taskspb.Task) error {
+func (t *Transport) process(ctx context.Context, e *Endpoint, msg *taskspb.Task) error {
 	defer func() {
 		if r := recover(); r != nil {
 			err := t.nack(ctx, msg)
@@ -125,7 +126,7 @@ func (t *Transport) process(ctx context.Context, e *endpoint, msg *taskspb.Task)
 	return nil
 }
 
-func (t *Transport) leaseTasks(ctx context.Context, e *endpoint) ([]*taskspb.Task, error) {
+func (t *Transport) leaseTasks(ctx context.Context, e *Endpoint) ([]*taskspb.Task, error) {
 	tasksResp, err := t.gctc.LeaseTasks(ctx, &taskspb.LeaseTasksRequest{
 		Parent:   e.queueName,
 		MaxTasks: e.maxTasks,
