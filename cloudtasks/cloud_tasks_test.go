@@ -1,4 +1,4 @@
-package kittygcp
+package cloudtasks
 
 import (
 	"context"
@@ -38,7 +38,7 @@ func TestServer(t *testing.T) {
 	shutdownCalled := false
 	ctx, cancel := context.WithCancel(context.Background())
 	exitError := make(chan error)
-	tr := NewCloudTasksTransport().
+	tr := NewTransport().
 		Endpoint(queueName, 1, 60, testEP, decode)
 	srv := kitty.NewServer(tr).Shutdown(func() {
 		shutdownCalled = true
@@ -46,11 +46,11 @@ func TestServer(t *testing.T) {
 	go func() {
 		exitError <- srv.Run(ctx)
 	}()
-	for tr.googleCloudTasksClient == nil {
+	for tr.gctc == nil {
 		time.Sleep(time.Millisecond)
 	}
 	{
-		_, err := send(ctx, queueName, tr.googleCloudTasksClient, []byte(`{"foo":"bar"}`), time.Millisecond)
+		_, err := send(ctx, queueName, tr.gctc, []byte(`{"foo":"bar"}`), time.Millisecond)
 		if err != nil {
 			t.Errorf("send to cloud tasks : %s", err)
 		} else {
@@ -94,7 +94,7 @@ func TestCloudTasksClient(t *testing.T) {
 		t.Log("Given a Cloud Tasks client")
 		ctx := context.TODO()
 		ch := make(chan interface{})
-		ctClient := NewCloudTasksTransport().
+		tr := NewTransport().
 			Endpoint(queueName, 1, 60, func(ctx context.Context, r interface{}) (interface{}, error) {
 				ch <- r
 				return nil, nil
@@ -104,9 +104,9 @@ func TestCloudTasksClient(t *testing.T) {
 		msg := msgTest{Msg: "hello"}
 		data, err := json.Marshal(msg)
 		assert.NoError(t, err)
-		ctClient.googleCloudTasksClient, err = cloudtasks.NewClient(ctx)
+		tr.gctc, err = cloudtasks.NewClient(ctx)
 		assert.NoError(t, err)
-		_, err = send(ctx, queueName, ctClient.googleCloudTasksClient, data, 1)
+		_, err = send(ctx, queueName, tr.gctc, data, 1)
 
 		t.Log("Then, I should not get any error")
 		assert.NoError(t, err)
@@ -115,7 +115,7 @@ func TestCloudTasksClient(t *testing.T) {
 		var c = make(chan bool, 1)
 
 		go func() {
-			err := ctClient.RegisterEndpoints(func(e endpoint.Endpoint) endpoint.Endpoint {
+			err := tr.RegisterEndpoints(func(e endpoint.Endpoint) endpoint.Endpoint {
 				MsgRead := &msgTest{}
 				err := json.Unmarshal(data, MsgRead)
 				assert.NoError(t, err)
@@ -124,7 +124,7 @@ func TestCloudTasksClient(t *testing.T) {
 				return nil
 			}, nil)
 			assert.NoError(t, err)
-			err = ctClient.Start(ctx)
+			err = tr.Start(ctx)
 			assert.NoError(t, err)
 		}()
 
@@ -159,6 +159,5 @@ func send(ctx context.Context, QueueName string, ctc *cloudtasks.Client, data []
 			},
 		},
 	}
-	resp, err := ctc.CreateTask(ctx, req)
-	return resp, errors.Wrap(err, "create task")
+	return ctc.CreateTask(ctx, req)
 }
