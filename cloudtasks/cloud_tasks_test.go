@@ -8,7 +8,7 @@ import (
 	"time"
 
 	cloudtasks "cloud.google.com/go/cloudtasks/apiv2beta2"
-	"github.com/go-kit/kit/endpoint"
+	kitendpoint "github.com/go-kit/kit/endpoint"
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/objenious/kitty"
 	"github.com/pkg/errors"
@@ -39,7 +39,7 @@ func TestServer(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	exitError := make(chan error)
 	tr := NewTransport().
-		Endpoint(queueName, 1, 60, testEP, decode)
+		Endpoint(queueName, 1, 60*time.Second, testEP, decode)
 	srv := kitty.NewServer(tr).Shutdown(func() {
 		shutdownCalled = true
 	})
@@ -115,7 +115,7 @@ func TestCloudTasksClient(t *testing.T) {
 		var c = make(chan bool, 1)
 
 		go func() {
-			err := tr.RegisterEndpoints(func(e endpoint.Endpoint) endpoint.Endpoint {
+			err := tr.RegisterEndpoints(func(e kitendpoint.Endpoint) kitendpoint.Endpoint {
 				MsgRead := &msgTest{}
 				err := json.Unmarshal(data, MsgRead)
 				assert.NoError(t, err)
