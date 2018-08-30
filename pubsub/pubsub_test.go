@@ -35,12 +35,35 @@ func testEP(_ context.Context, req interface{}) (interface{}, error) {
 // to launch before : gcloud beta emulators pubsub start
 func TestServer(t *testing.T) {
 	os.Setenv("PUBSUB_EMULATOR_HOST", "localhost:8085")
+
+	ctx := context.TODO()
+	projectName := "project"
+	topicName := "pub"
+	subscriptionName := "sub"
+	c, err := pubsub.NewClient(ctx, projectName)
+	assert.NoError(t, err)
+	topic := c.Topic(topicName)
+	topicExists, err := topic.Exists(ctx)
+	assert.NoError(t, err)
+	if !topicExists {
+		topic, err = c.CreateTopic(ctx, topicName)
+		assert.NoError(t, err)
+	}
+	subscription := c.Subscription(subscriptionName)
+	subExists, err := subscription.Exists(ctx)
+	assert.NoError(t, err)
+	if !subExists {
+		subscription, err = c.CreateSubscription(ctx, subscriptionName, pubsub.SubscriptionConfig{Topic: topic})
+		assert.NoError(t, err)
+	}
+	err = c.Close()
+	assert.NoError(t, err)
+
 	shutdownCalled := false
 	ctx, cancel := context.WithCancel(context.Background())
 	exitError := make(chan error)
 	tr, err := NewTransport(ctx, "project")
 	assert.NoError(t, err)
-	subscriptionName := "sub"
 	err = tr.Endpoint(ctx, testEP, decode, Config{
 		Subscription: subscriptionName,
 	})
@@ -53,22 +76,6 @@ func TestServer(t *testing.T) {
 	}()
 	for tr.c == nil {
 		time.Sleep(time.Millisecond)
-	}
-
-	topicName := "pub"
-	topic := tr.c.Topic(topicName)
-	topicExists, err := topic.Exists(ctx)
-	assert.NoError(t, err)
-	if !topicExists {
-		_, err := tr.c.CreateTopic(ctx, topicName)
-		assert.NoError(t, err)
-	}
-	subscription := tr.c.Subscription(subscriptionName)
-	subExists, err := subscription.Exists(ctx)
-	assert.NoError(t, err)
-	if !subExists {
-		_, err := tr.c.CreateSubscription(ctx, subscriptionName, pubsub.SubscriptionConfig{Topic: topic})
-		assert.NoError(t, err)
 	}
 
 	{

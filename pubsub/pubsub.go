@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/pubsub"
-	kitendpoint "github.com/go-kit/kit/endpoint"
+	"github.com/go-kit/kit/endpoint"
 	"github.com/objenious/errorutil"
 	"github.com/objenious/kitty"
 )
@@ -26,7 +26,7 @@ type Config struct {
 // Transport is a transport that receives Records from PubSub
 type Transport struct {
 	c         *pubsub.Client
-	endpoints []*endpoint
+	endpoints []*Endpoint
 }
 
 var _ kitty.Transport = &Transport{}
@@ -34,11 +34,12 @@ var _ kitty.Transport = &Transport{}
 // Decoder is a function to decode pub/sub message and return structured data
 type Decoder func([]byte) (interface{}, error)
 
-type endpoint struct {
+// Endpoint for this pubsub transport
+type Endpoint struct {
 	pubsub           Config
 	subscription     *pubsub.Subscription
 	lastReceivedTime time.Time
-	endpoint         kitendpoint.Endpoint
+	endpoint         endpoint.Endpoint
 	decode           Decoder
 }
 
@@ -52,7 +53,7 @@ func NewTransport(ctx context.Context, projectID string) (*Transport, error) {
 }
 
 // Endpoint create a new Endpoint using config & dependencies
-func (t *Transport) Endpoint(ctx context.Context, e kitendpoint.Endpoint, decode Decoder, cfg Config) error {
+func (t *Transport) Endpoint(ctx context.Context, e endpoint.Endpoint, decode Decoder, cfg Config) error {
 
 	sub := t.c.Subscription(cfg.Subscription)
 
@@ -70,7 +71,7 @@ func (t *Transport) Endpoint(ctx context.Context, e kitendpoint.Endpoint, decode
 		}
 		return fmt.Errorf("The subscription %s does not exists", cfg.Subscription)
 	}
-	t.endpoints = append(t.endpoints, &endpoint{
+	t.endpoints = append(t.endpoints, &Endpoint{
 		pubsub:           cfg,
 		subscription:     sub,
 		lastReceivedTime: time.Now(),
@@ -114,7 +115,7 @@ func (t *Transport) Start(ctx context.Context) error {
 }
 
 // RegisterEndpoints register endpoint
-func (t *Transport) RegisterEndpoints(m kitendpoint.Middleware) error {
+func (t *Transport) RegisterEndpoints(m endpoint.Middleware) error {
 	for _, e := range t.endpoints {
 		e.endpoint = m(e.endpoint)
 	}
