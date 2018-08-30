@@ -73,7 +73,7 @@ func (t *Transport) Shutdown(ctx context.Context) error {
 // RegisterEndpoints register endpoint
 func (t *Transport) RegisterEndpoints(m kitendpoint.Middleware, fn kitty.AddLoggerToContextFn) error {
 	for _, e := range t.endpoints {
-		m(e.endpoint)
+		e.endpoint = m(e.endpoint)
 	}
 	return nil
 }
