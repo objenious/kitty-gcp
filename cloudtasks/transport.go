@@ -9,7 +9,6 @@ import (
 	tasksapi "cloud.google.com/go/cloudtasks/apiv2beta2"
 	"github.com/go-kit/kit/endpoint"
 	"github.com/golang/protobuf/ptypes/duration"
-	"github.com/objenious/errorutil"
 	"github.com/objenious/kitty"
 	taskspb "google.golang.org/genproto/googleapis/cloud/tasks/v2beta2"
 )
@@ -34,31 +33,35 @@ func (t *Transport) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
 	g, ctx := errgroup.WithContext(ctx)
-	for i := range t.endpoints {
-		g.Go(func() error {
-			for {
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case <-ticker.C:
-					msgs, err := t.leaseTasks(ctx, t.endpoints[i])
+	for _, e := range t.endpoints {
+		g.Go(t.consumer(ctx, e))
+	}
+	return g.Wait()
+}
+
+func (t *Transport) consumer(ctx context.Context, e *Endpoint) func() error {
+	return func() error {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ticker.C:
+				msgs, err := t.leaseTasks(ctx, e)
+				if err != nil {
+					kitty.Logger(ctx).Log(err)
+				}
+				for i := range msgs {
+					err = t.process(ctx, e, msgs[i])
 					if err != nil {
 						kitty.Logger(ctx).Log(err)
 					}
-					for i := range msgs {
-						err = t.process(ctx, t.endpoints[i], msgs[i])
-						if err != nil {
-							kitty.Logger(ctx).Log(err)
-						}
-					}
 				}
 			}
-		})
+		}
 	}
-	return g.Wait()
 }
 
 // Shutdown shutdowns the cloud tasks transport
@@ -97,7 +100,7 @@ func (t *Transport) process(ctx context.Context, e *Endpoint, msg *taskspb.Task)
 		_, err = e.endpoint(ctx, s)
 	}
 	if err != nil {
-		if errorutil.IsRetryable(err) {
+		if kitty.IsRetryable(err) {
 			delay := t.getDelay(err)
 			switch delay {
 			case 0:
@@ -167,7 +170,7 @@ func (*Transport) getDelay(err error) time.Duration {
 	}
 
 	for err != nil {
-		if retry, ok := err.(Delayabler); ok {
+		if retry, ok := err.(Delayer); ok {
 			return retry.Delay()
 		}
 		cause, ok := err.(causer)

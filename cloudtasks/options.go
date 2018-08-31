@@ -2,25 +2,25 @@ package cloudtasks
 
 import "time"
 
-// Option defines optional conf
-type Option func(*Endpoint)
+// EndpointOption defines optional conf
+type EndpointOption func(*Endpoint)
 
-// DecodeOption set the decoder of the endpoint
-func DecodeOption(d TaskDecoder) Option {
+// Decode set the decoder of the endpoint
+func Decode(d TaskDecoder) EndpointOption {
 	return func(e *Endpoint) {
 		e.decode = d
 	}
 }
 
-// LeaseTimeOption set the lease time of the endpoint
-func LeaseTimeOption(d time.Duration) Option {
+// LeaseTime set the lease time of the endpoint
+func LeaseTime(d time.Duration) EndpointOption {
 	return func(e *Endpoint) {
 		e.leaseTime = d
 	}
 }
 
-// MaxTasksOption set the max tasks of the endpoint
-func MaxTasksOption(n int32) Option {
+// MaxTasks set the max tasks of the endpoint
+func MaxTasks(n int32) EndpointOption {
 	return func(e *Endpoint) {
 		e.maxTasks = n
 	}

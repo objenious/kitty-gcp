@@ -19,7 +19,7 @@ type Endpoint struct {
 }
 
 // Endpoint registers endpoint
-func (t *Transport) Endpoint(queueName string, ep endpoint.Endpoint, opts ...Option) *Transport {
+func (t *Transport) Endpoint(queueName string, ep endpoint.Endpoint, opts ...EndpointOption) *Transport {
 	e := &Endpoint{
 		queueName: queueName,
 		endpoint:  ep,
