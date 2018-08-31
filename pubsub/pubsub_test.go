@@ -62,7 +62,7 @@ func TestServer(t *testing.T) {
 	shutdownCalled := false
 	ctx, cancel := context.WithCancel(context.Background())
 	exitError := make(chan error)
-	tr := NewTransport(ctx, "project").Endpoint(subscriptionName, testEP, func(e *Endpoint) { e.decode = decode })
+	tr := NewTransport(ctx, "project").Endpoint(subscriptionName, testEP, Decode(decode))
 	srv := kitty.NewServer(tr).Shutdown(func() {
 		shutdownCalled = true
 	})

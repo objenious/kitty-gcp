@@ -20,20 +20,6 @@ type Transport struct {
 
 var _ kitty.Transport = &Transport{}
 
-// Decoder is a function to decode pub/sub message and return structured data
-type Decoder func([]byte) (interface{}, error)
-
-// Endpoint for this pubsub transport
-type Endpoint struct {
-	subscriptionName       string
-	maxOutstandingMessages int
-	maxExtension           time.Duration
-	subscription           *pubsub.Subscription
-	lastReceivedTime       time.Time
-	endpoint               endpoint.Endpoint
-	decode                 Decoder
-}
-
 // NewTransport creates a new Transport using the config from env and default dependencies
 func NewTransport(ctx context.Context, projectID string) *Transport {
 	return &Transport{
@@ -42,7 +28,7 @@ func NewTransport(ctx context.Context, projectID string) *Transport {
 }
 
 // Endpoint create a new Endpoint using config & dependencies
-func (t *Transport) Endpoint(subscriptionName string, endpoint endpoint.Endpoint, options ...Option) *Transport {
+func (t *Transport) Endpoint(subscriptionName string, endpoint endpoint.Endpoint, options ...EndpointOption) *Transport {
 	e := &Endpoint{
 		subscriptionName: subscriptionName,
 		lastReceivedTime: time.Now(),
@@ -54,9 +40,6 @@ func (t *Transport) Endpoint(subscriptionName string, endpoint endpoint.Endpoint
 	t.endpoints = append(t.endpoints, e)
 	return t
 }
-
-// Option is a function to set option in endpoint
-type Option func(*Endpoint)
 
 // Close stops listening to PubSub
 func (t *Transport) Close() {
