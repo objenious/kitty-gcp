@@ -13,6 +13,7 @@ import (
 
 // Transport is a transport that receives Records from PubSub
 type Transport struct {
+	projectID string
 	c         *pubsub.Client
 	endpoints []*Endpoint
 }
@@ -34,16 +35,14 @@ type Endpoint struct {
 }
 
 // NewTransport creates a new Transport using the config from env and default dependencies
-func NewTransport(ctx context.Context, projectID string) (*Transport, error) {
-	c, err := pubsub.NewClient(ctx, projectID)
-	if err != nil {
-		return nil, err
+func NewTransport(ctx context.Context, projectID string) *Transport {
+	return &Transport{
+		projectID: projectID,
 	}
-	return &Transport{c: c}, nil
 }
 
 // Endpoint create a new Endpoint using config & dependencies
-func (t *Transport) Endpoint(subscriptionName string, endpoint endpoint.Endpoint, options ...Option) error {
+func (t *Transport) Endpoint(subscriptionName string, endpoint endpoint.Endpoint, options ...Option) *Transport {
 	e := &Endpoint{
 		subscriptionName: subscriptionName,
 		lastReceivedTime: time.Now(),
@@ -53,7 +52,7 @@ func (t *Transport) Endpoint(subscriptionName string, endpoint endpoint.Endpoint
 		opt(e)
 	}
 	t.endpoints = append(t.endpoints, e)
-	return nil
+	return t
 }
 
 // Option is a function to set option in endpoint
@@ -66,6 +65,11 @@ func (t *Transport) Close() {
 
 // Start starts listening to PubSub
 func (t *Transport) Start(ctx context.Context) error {
+	var err error
+	t.c, err = pubsub.NewClient(ctx, t.projectID)
+	if err != nil {
+		return err
+	}
 	for _, e := range t.endpoints {
 		e.subscription = t.c.Subscription(e.subscriptionName)
 		if exists, err := e.subscription.Exists(ctx); !exists {

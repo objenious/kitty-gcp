@@ -62,10 +62,7 @@ func TestServer(t *testing.T) {
 	shutdownCalled := false
 	ctx, cancel := context.WithCancel(context.Background())
 	exitError := make(chan error)
-	tr, err := NewTransport(ctx, "project")
-	assert.NoError(t, err)
-	err = tr.Endpoint(subscriptionName, testEP, func(e *Endpoint) { e.decode = decode })
-	assert.NoError(t, err)
+	tr := NewTransport(ctx, "project").Endpoint(subscriptionName, testEP, func(e *Endpoint) { e.decode = decode })
 	srv := kitty.NewServer(tr).Shutdown(func() {
 		shutdownCalled = true
 	})
@@ -78,6 +75,107 @@ func TestServer(t *testing.T) {
 
 	{
 		send(ctx, topicName, tr.c, []byte(`{"foo":"bar"}`))
+		if err != nil {
+			t.Errorf("send to cloud tasks : %s", err)
+		} else {
+			resData := <-testCh
+			if !reflect.DeepEqual(resData, &testStruct{Foo: "bar", Status: 0}) {
+				t.Errorf("cloud tasks returned invalid data : %+v", resData)
+			}
+		}
+	}
+
+	cancel()
+	select {
+	case <-time.After(time.Second):
+		t.Error("Server.Run has not stopped after 1sec")
+	case err := <-exitError:
+		if err != nil && err != context.Canceled {
+			t.Errorf("Server.Run returned an error : %s", err)
+		}
+	}
+	if !shutdownCalled {
+		t.Error("Shutdown functions are not called")
+	}
+}
+
+// to launch before : gcloud beta emulators pubsub start
+func TestServerWithMultipleEndpoints(t *testing.T) {
+	os.Setenv("PUBSUB_EMULATOR_HOST", "localhost:8085")
+
+	ctx := context.TODO()
+	projectName := "project"
+	topicName := "pub"
+	topicName2 := "pub2"
+	subscriptionName := "sub"
+	subscriptionName2 := "sub2"
+
+	c, err := pubsub.NewClient(ctx, projectName)
+	assert.NoError(t, err)
+
+	topic := c.Topic(topicName)
+	topicExists, err := topic.Exists(ctx)
+	assert.NoError(t, err)
+	if !topicExists {
+		topic, err = c.CreateTopic(ctx, topicName)
+		assert.NoError(t, err)
+	}
+
+	subscription := c.Subscription(subscriptionName)
+	subExists, err := subscription.Exists(ctx)
+	assert.NoError(t, err)
+	if !subExists {
+		subscription, err = c.CreateSubscription(ctx, subscriptionName, pubsub.SubscriptionConfig{Topic: topic})
+		assert.NoError(t, err)
+	}
+
+	topic2 := c.Topic(topicName2)
+	topicExists, err = topic2.Exists(ctx)
+	assert.NoError(t, err)
+	if !topicExists {
+		topic2, err = c.CreateTopic(ctx, topicName2)
+		assert.NoError(t, err)
+	}
+
+	subscription2 := c.Subscription(subscriptionName2)
+	subExists, err = subscription2.Exists(ctx)
+	assert.NoError(t, err)
+	if !subExists {
+		subscription2, err = c.CreateSubscription(ctx, subscriptionName2, pubsub.SubscriptionConfig{Topic: topic2})
+		assert.NoError(t, err)
+	}
+
+	err = c.Close()
+	assert.NoError(t, err)
+
+	shutdownCalled := false
+	ctx, cancel := context.WithCancel(context.Background())
+	exitError := make(chan error)
+	tr := NewTransport(ctx, "project").
+		Endpoint(subscriptionName, testEP, func(e *Endpoint) { e.decode = decode }).
+		Endpoint(subscriptionName2, testEP, func(e *Endpoint) { e.decode = decode })
+
+	srv := kitty.NewServer(tr).Shutdown(func() {
+		shutdownCalled = true
+	})
+	go func() {
+		exitError <- srv.Run(ctx)
+	}()
+	for tr.c == nil {
+		time.Sleep(time.Millisecond)
+	}
+
+	{
+		send(ctx, topicName, tr.c, []byte(`{"foo":"bar"}`))
+		if err != nil {
+			t.Errorf("send to cloud tasks : %s", err)
+		} else {
+			resData := <-testCh
+			if !reflect.DeepEqual(resData, &testStruct{Foo: "bar", Status: 0}) {
+				t.Errorf("cloud tasks returned invalid data : %+v", resData)
+			}
+		}
+		send(ctx, topicName2, tr.c, []byte(`{"foo":"bar"}`))
 		if err != nil {
 			t.Errorf("send to cloud tasks : %s", err)
 		} else {
