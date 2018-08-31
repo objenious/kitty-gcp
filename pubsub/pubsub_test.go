@@ -64,9 +64,7 @@ func TestServer(t *testing.T) {
 	exitError := make(chan error)
 	tr, err := NewTransport(ctx, "project")
 	assert.NoError(t, err)
-	err = tr.Endpoint(ctx, testEP, decode, Config{
-		Subscription: subscriptionName,
-	})
+	err = tr.Endpoint(subscriptionName, testEP, func(e *Endpoint) { e.decode = decode })
 	assert.NoError(t, err)
 	srv := kitty.NewServer(tr).Shutdown(func() {
 		shutdownCalled = true
@@ -118,7 +116,7 @@ func decode(b []byte) (interface{}, error) {
 	return d, nil
 }
 
-// Send sends a message to a Cloud Tasks queue. The queue must already exist.
+// send sends a message to a Cloud Tasks queue. The queue must already exist.
 func send(ctx context.Context, topic string, c *pubsub.Client, data []byte) {
 	t := c.Topic(topic)
 	res := t.Publish(ctx, &pubsub.Message{Data: data})

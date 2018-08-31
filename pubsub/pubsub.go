@@ -11,18 +11,6 @@ import (
 	"github.com/objenious/kitty"
 )
 
-// Config is the PubSubListener config
-type Config struct {
-	// The subscription name
-	Subscription string `envconfig:"subscription"`
-	// Pubsub ReceiveSettings MaxExtension
-	MaxExtension time.Duration `envconfig:"max_extension" default:"30m"`
-	// Pubsub ReceiveSettings MaxOutstandingMessages
-	MaxOutstandingMessages int `envconfig:"max_outstanding_messages" default:"10"`
-	// HealthCheckMaxAge is the maximum duration before health-check is down
-	HealthCheckMaxAge time.Duration `envconfig:"healthcheck_max_age" default:"5m"`
-}
-
 // Transport is a transport that receives Records from PubSub
 type Transport struct {
 	c         *pubsub.Client
@@ -36,11 +24,13 @@ type Decoder func([]byte) (interface{}, error)
 
 // Endpoint for this pubsub transport
 type Endpoint struct {
-	pubsub           Config
-	subscription     *pubsub.Subscription
-	lastReceivedTime time.Time
-	endpoint         endpoint.Endpoint
-	decode           Decoder
+	subscriptionName       string
+	maxOutstandingMessages int
+	maxExtension           time.Duration
+	subscription           *pubsub.Subscription
+	lastReceivedTime       time.Time
+	endpoint               endpoint.Endpoint
+	decode                 Decoder
 }
 
 // NewTransport creates a new Transport using the config from env and default dependencies
@@ -53,33 +43,21 @@ func NewTransport(ctx context.Context, projectID string) (*Transport, error) {
 }
 
 // Endpoint create a new Endpoint using config & dependencies
-func (t *Transport) Endpoint(ctx context.Context, e endpoint.Endpoint, decode Decoder, cfg Config) error {
-
-	sub := t.c.Subscription(cfg.Subscription)
-
-	if cfg.MaxExtension > 0 {
-		sub.ReceiveSettings.MaxExtension = cfg.MaxExtension
-	}
-
-	if cfg.MaxOutstandingMessages > 0 {
-		sub.ReceiveSettings.MaxOutstandingMessages = cfg.MaxOutstandingMessages
-	}
-
-	if exists, err := sub.Exists(ctx); !exists {
-		if err != nil {
-			return err
-		}
-		return fmt.Errorf("The subscription %s does not exists", cfg.Subscription)
-	}
-	t.endpoints = append(t.endpoints, &Endpoint{
-		pubsub:           cfg,
-		subscription:     sub,
+func (t *Transport) Endpoint(subscriptionName string, endpoint endpoint.Endpoint, options ...Option) error {
+	e := &Endpoint{
+		subscriptionName: subscriptionName,
 		lastReceivedTime: time.Now(),
-		endpoint:         e,
-		decode:           decode,
-	})
+		endpoint:         endpoint,
+	}
+	for _, opt := range options {
+		opt(e)
+	}
+	t.endpoints = append(t.endpoints, e)
 	return nil
 }
+
+// Option is a function to set option in endpoint
+type Option func(*Endpoint)
 
 // Close stops listening to PubSub
 func (t *Transport) Close() {
@@ -89,15 +67,35 @@ func (t *Transport) Close() {
 // Start starts listening to PubSub
 func (t *Transport) Start(ctx context.Context) error {
 	for _, e := range t.endpoints {
+		e.subscription = t.c.Subscription(e.subscriptionName)
+		if exists, err := e.subscription.Exists(ctx); !exists {
+			if err != nil {
+				return err
+			}
+			return fmt.Errorf("The subscription %s does not exists", e.subscriptionName)
+		}
+		if e.maxExtension > 0 {
+			e.subscription.ReceiveSettings.MaxExtension = e.maxExtension
+		}
+		if e.maxOutstandingMessages > 0 {
+			e.subscription.ReceiveSettings.MaxOutstandingMessages = e.maxOutstandingMessages
+		}
 		err := e.subscription.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
 			e.lastReceivedTime = time.Now()
-
 			defer func() {
 				if r := recover(); r != nil {
 					msg.Nack()
 				}
 			}()
-			dec, err := e.decode(msg.Data)
+			var (
+				dec interface{}
+				err error
+			)
+			if e.decode != nil {
+				dec, err = e.decode(msg.Data)
+			} else {
+				dec = msg.Data
+			}
 			if err == nil {
 				_, err = e.endpoint(ctx, dec)
 			}
