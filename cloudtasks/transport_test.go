@@ -39,7 +39,7 @@ func TestServer(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	exitError := make(chan error)
 	tr := NewTransport().
-		Endpoint(queueName, testEP, func(e *Endpoint) { e.decode = decode }, func(e *Endpoint) { e.leaseTime = 60 * time.Second })
+		Endpoint(queueName, testEP, DecodeOption(decode), LeaseTimeOption(time.Minute))
 	srv := kitty.NewServer(tr).Shutdown(func() {
 		shutdownCalled = true
 	})
@@ -98,7 +98,7 @@ func TestCloudTasksClient(t *testing.T) {
 			Endpoint(queueName, func(ctx context.Context, r interface{}) (interface{}, error) {
 				ch <- r
 				return nil, nil
-			}, func(e *Endpoint) { e.decode = decode }, func(e *Endpoint) { e.leaseTime = 60 * time.Second })
+			}, DecodeOption(decode), LeaseTimeOption(time.Minute))
 
 		t.Log("when I send a message")
 		msg := msgTest{Msg: "hello"}
