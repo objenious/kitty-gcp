@@ -7,6 +7,7 @@ import (
 	tasksapi "cloud.google.com/go/cloudtasks/apiv2beta2"
 	"github.com/go-kit/kit/endpoint"
 	"github.com/golang/protobuf/ptypes/duration"
+	"github.com/objenious/errorutil"
 	"github.com/objenious/kitty"
 	taskspb "google.golang.org/genproto/googleapis/cloud/tasks/v2beta2"
 )
@@ -53,12 +54,12 @@ func (t *Transport) Start(ctx context.Context) error {
 			for _, e := range t.endpoints {
 				msgs, err := t.leaseTasks(ctx, e)
 				if err != nil {
-					return err
+					kitty.Logger(ctx).Log(err)
 				}
 				for i := range msgs {
 					err = t.process(ctx, e, msgs[i])
 					if err != nil {
-						return err
+						kitty.Logger(ctx).Log(err)
 					}
 				}
 			}
@@ -79,51 +80,45 @@ func (t *Transport) RegisterEndpoints(m endpoint.Middleware) error {
 	return nil
 }
 
-// Endpoint registers endpoint
-func (t *Transport) Endpoint(queueName string, maxTasks int32, leaseTime time.Duration, ep endpoint.Endpoint, decode TaskDecoder) *Transport {
-	e := &Endpoint{
-		maxTasks:  maxTasks,
-		leaseTime: leaseTime,
-		queueName: queueName,
-		endpoint:  ep,
-		decode:    decode,
-	}
-	t.endpoints = append(t.endpoints, e)
-	return t
-}
-
 func (t *Transport) process(ctx context.Context, e *Endpoint, msg *taskspb.Task) error {
 	defer func() {
 		if r := recover(); r != nil {
 			err := t.nack(ctx, msg)
-			_ = err // do we panic on the error
+			if err != nil {
+				_ = kitty.Logger(ctx).Log(err)
+			}
 		}
 	}()
 	pm := msg.GetPullMessage()
-	s, err := e.decode(pm.GetPayload())
+	var (
+		s   interface{}
+		err error
+	)
+	if e.decode != nil {
+		s, err = e.decode(pm.GetPayload())
+	} else {
+		s = pm.GetPayload()
+	}
 	if err == nil {
 		_, err = e.endpoint(ctx, s)
 	}
 	if err != nil {
-		delay := getDelay(err)
-		if delay == 0 {
-			err = t.nack(ctx, msg)
-			if err != nil {
-				return err
+		if errorutil.IsRetryable(err) {
+			delay := t.getDelay(err)
+			switch delay {
+			case 0:
+				err = t.nack(ctx, msg)
+			default:
+				err = t.nackWithDelay(ctx, msg, delay)
 			}
 		} else {
-			err = t.nackWithDelay(ctx, msg, delay)
-			if err != nil {
-				return err
-			}
+			_ = kitty.Logger(ctx).Log(err)
+			err = t.ack(ctx, msg)
 		}
 	} else {
 		err = t.ack(ctx, msg)
-		if err != nil {
-			return err
-		}
 	}
-	return nil
+	return err
 }
 
 func (t *Transport) leaseTasks(ctx context.Context, e *Endpoint) ([]*taskspb.Task, error) {
@@ -172,37 +167,15 @@ func (t *Transport) nackWithDelay(ctx context.Context, task *taskspb.Task, delay
 	return err
 }
 
-// delayabler defines an error with a retry delay
-// COMMENTED not used : à exporter pour un usage par les endpoints ?
-/*type delayabler interface {
-	Delay() time.Duration
-}
-
-type delaybleErr struct {
-	error
-	delay time.Duration
-}
-
-func delaybleError(err error, delay time.Duration) error {
-	return &delaybleErr{
-		error: err,
-		delay: delay,
-	}
-}
-
-func (err *delaybleErr) Delay() time.Duration {
-	return err.delay
-}*/
-
-func getDelay(err error) time.Duration {
+func (*Transport) getDelay(err error) time.Duration {
 	type causer interface {
 		Cause() error
 	}
 
 	for err != nil {
-		/*if retry, ok := err.(delayabler); ok {
+		if retry, ok := err.(Delayabler); ok {
 			return retry.Delay()
-		}*/
+		}
 		cause, ok := err.(causer)
 		if !ok {
 			break

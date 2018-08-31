@@ -39,7 +39,7 @@ func TestServer(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	exitError := make(chan error)
 	tr := NewTransport().
-		Endpoint(queueName, 1, 60*time.Second, testEP, decode)
+		Endpoint(queueName, testEP, func(e *Endpoint) { e.decode = decode }, func(e *Endpoint) { e.leaseTime = 60 * time.Second })
 	srv := kitty.NewServer(tr).Shutdown(func() {
 		shutdownCalled = true
 	})
@@ -95,10 +95,10 @@ func TestCloudTasksClient(t *testing.T) {
 		ctx := context.TODO()
 		ch := make(chan interface{})
 		tr := NewTransport().
-			Endpoint(queueName, 1, time.Minute, func(ctx context.Context, r interface{}) (interface{}, error) {
+			Endpoint(queueName, func(ctx context.Context, r interface{}) (interface{}, error) {
 				ch <- r
 				return nil, nil
-			}, decode)
+			}, func(e *Endpoint) { e.decode = decode }, func(e *Endpoint) { e.leaseTime = 60 * time.Second })
 
 		t.Log("when I send a message")
 		msg := msgTest{Msg: "hello"}
@@ -142,7 +142,7 @@ func TestCloudTasksClient(t *testing.T) {
 	}
 }
 
-// Send sends a message to a Cloud Tasks queue. The queue must already exist.
+// send sends a message to a Cloud Tasks queue. The queue must already exist.
 func send(ctx context.Context, QueueName string, ctc *cloudtasks.Client, data []byte, delay time.Duration) (*taskspb.Task, error) {
 	schTime := time.Now().Add(delay)
 	timestamp := timestamp.Timestamp{
