@@ -27,18 +27,6 @@ func NewTransport() *Transport {
 	return &Transport{}
 }
 
-// Endpoint for Cloud Tasks transport
-type Endpoint struct {
-	queueName string
-	endpoint  endpoint.Endpoint
-	maxTasks  int32
-	leaseTime time.Duration
-	decode    func([]byte) (interface{}, error)
-}
-
-// TaskDecoder is a function to decode task payload and return structured data
-type TaskDecoder func([]byte) (interface{}, error)
-
 // Start starts pulling msg from Cloud Tasks.
 func (t *Transport) Start(ctx context.Context) error {
 	var err error
