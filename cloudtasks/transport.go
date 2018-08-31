@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	tasksapi "cloud.google.com/go/cloudtasks/apiv2beta2"
 	"github.com/go-kit/kit/endpoint"
 	"github.com/golang/protobuf/ptypes/duration"
@@ -46,25 +48,29 @@ func (t *Transport) Start(ctx context.Context) error {
 	}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			for _, e := range t.endpoints {
-				msgs, err := t.leaseTasks(ctx, e)
-				if err != nil {
-					kitty.Logger(ctx).Log(err)
-				}
-				for i := range msgs {
-					err = t.process(ctx, e, msgs[i])
+	g, ctx := errgroup.WithContext(ctx)
+	for i := range t.endpoints {
+		g.Go(func() error {
+			for {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-ticker.C:
+					msgs, err := t.leaseTasks(ctx, t.endpoints[i])
 					if err != nil {
 						kitty.Logger(ctx).Log(err)
 					}
+					for i := range msgs {
+						err = t.process(ctx, t.endpoints[i], msgs[i])
+						if err != nil {
+							kitty.Logger(ctx).Log(err)
+						}
+					}
 				}
 			}
-		}
+		})
 	}
+	return g.Wait()
 }
 
 // Shutdown shutdowns the cloud tasks transport
