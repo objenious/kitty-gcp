@@ -2,6 +2,7 @@ package cloudtasks
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -199,12 +200,34 @@ func (*Transport) LogKeys() map[string]interface{} {
 // corresponding ContextKey type in this package.
 func PopulateRequestContext(ctx context.Context, t *taskspb.Task) context.Context {
 	for k, v := range map[contextKey]string{
-		ContextKeyTaskID:  t.GetCreateTime().String(),
-		ContextKeyQueueID: t.GetName(),
+		ContextKeyTaskID:  taskID(t),
+		ContextKeyQueueID: queueID(t),
 	} {
 		ctx = context.WithValue(ctx, k, v)
 	}
 	return ctx
+}
+
+func taskID(t *taskspb.Task) string {
+	return extractValueFromPath(t.GetName(), "tasks")
+}
+
+func queueID(t *taskspb.Task) string {
+	return extractValueFromPath(t.GetName(), "queues")
+}
+
+func extractValueFromPath(path string, key string) string {
+	key = "/" + key + "/"
+	idx := strings.Index(path, key)
+	if idx > 0 {
+		res := path[idx+len(key):]
+		idx = strings.Index(res, "/")
+		if idx > 0 {
+			res = res[:idx]
+		}
+		return res
+	}
+	return "???"
 }
 
 type contextKey int
