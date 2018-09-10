@@ -34,6 +34,7 @@ func (t *Transport) Start(ctx context.Context) error {
 		return err
 	}
 	g, ctx := errgroup.WithContext(ctx)
+
 	for _, e := range t.endpoints {
 		g.Go(t.consumer(ctx, e))
 	}
@@ -54,9 +55,10 @@ func (t *Transport) consumer(ctx context.Context, e *Endpoint) func() error {
 					kitty.Logger(ctx).Log(err)
 				}
 				for i := range msgs {
-					err = t.process(ctx, e, msgs[i])
+					taskCtx := PopulateRequestContext(ctx, msgs[i])
+					err = t.process(taskCtx, e, msgs[i])
 					if err != nil {
-						kitty.Logger(ctx).Log(err)
+						kitty.Logger(taskCtx).Log(err)
 					}
 				}
 			}
@@ -181,3 +183,38 @@ func (*Transport) getDelay(err error) time.Duration {
 	}
 	return 0
 }
+
+var logKeys = map[string]interface{}{
+	"cloudtasks-task-id":  nil,
+	"cloudtasks-queue-id": nil,
+}
+
+// LogKeys returns the keys for logging
+func (*Transport) LogKeys() map[string]interface{} {
+	return logKeys
+}
+
+// PopulateRequestContext is a RequestFunc that populates several values into
+// the context from the HTTP request. Those values may be extracted using the
+// corresponding ContextKey type in this package.
+func PopulateRequestContext(ctx context.Context, t *taskspb.Task) context.Context {
+	for k, v := range map[contextKey]string{
+		ContextKeyTaskID:  t.GetCreateTime().String(),
+		ContextKeyQueueID: t.GetName(),
+	} {
+		ctx = context.WithValue(ctx, k, v)
+	}
+	return ctx
+}
+
+type contextKey int
+
+const (
+	// ContextKeyTaskID is populated in the context by
+	// PopulateRequestContext. Its value is t.ID.
+	ContextKeyTaskID contextKey = iota
+
+	// ContextKeyQueueID is populated in the context by
+	// PopulateRequestContext. Its value is t.QueueID.
+	ContextKeyQueueID
+)
