@@ -3,7 +3,6 @@ package pubsub
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"cloud.google.com/go/pubsub"
 	"github.com/go-kit/kit/endpoint"
@@ -31,7 +30,6 @@ func NewTransport(ctx context.Context, projectID string) *Transport {
 func (t *Transport) Endpoint(subscriptionName string, endpoint endpoint.Endpoint, options ...EndpointOption) *Transport {
 	e := &Endpoint{
 		subscriptionName: subscriptionName,
-		lastReceivedTime: time.Now(),
 		endpoint:         endpoint,
 	}
 	for _, opt := range options {
@@ -55,10 +53,10 @@ func (t *Transport) Start(ctx context.Context) error {
 	}
 	for _, e := range t.endpoints {
 		e.subscription = t.c.Subscription(e.subscriptionName)
-		if exists, err := e.subscription.Exists(ctx); !exists {
-			if err != nil {
-				return err
-			}
+		exists, err := e.subscription.Exists(ctx)
+		if err != nil {
+			return err
+		} else if !exists {
 			return fmt.Errorf("The subscription %s does not exists", e.subscriptionName)
 		}
 		if e.maxExtension > 0 {
@@ -67,8 +65,7 @@ func (t *Transport) Start(ctx context.Context) error {
 		if e.maxOutstandingMessages > 0 {
 			e.subscription.ReceiveSettings.MaxOutstandingMessages = e.maxOutstandingMessages
 		}
-		err := e.subscription.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
-			e.lastReceivedTime = time.Now()
+		err = e.subscription.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
 			defer func() {
 				if r := recover(); r != nil {
 					msg.Nack()

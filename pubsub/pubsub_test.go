@@ -34,8 +34,6 @@ func testEP(_ context.Context, req interface{}) (interface{}, error) {
 
 // to launch before : gcloud beta emulators pubsub start
 func TestServer(t *testing.T) {
-	os.Setenv("PUBSUB_EMULATOR_HOST", "localhost:8085")
-
 	ctx := context.TODO()
 	projectName := "project"
 	topicName := "pub"

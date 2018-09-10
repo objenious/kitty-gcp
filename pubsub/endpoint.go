@@ -22,9 +22,8 @@ type Endpoint struct {
 	maxOutstandingMessages int
 	maxExtension           time.Duration
 	// runtime
-	endpoint         endpoint.Endpoint
-	subscription     *pubsub.Subscription
-	lastReceivedTime time.Time
+	endpoint     endpoint.Endpoint
+	subscription *pubsub.Subscription
 }
 
 // Decode add a decoder in the endpoint
