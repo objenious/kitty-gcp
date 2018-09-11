@@ -9,6 +9,11 @@ import (
 // TaskDecoder is a function to decode task payload and return structured data
 type TaskDecoder func([]byte) (interface{}, error)
 
+// NoOpDecoder is a function that does nothing more than return the argument
+func NoOpDecoder(b []byte) (interface{}, error) {
+	return b, nil
+}
+
 // Endpoint for Cloud Tasks transport
 type Endpoint struct {
 	queueName string
@@ -25,6 +30,7 @@ func (t *Transport) Endpoint(queueName string, ep endpoint.Endpoint, opts ...End
 		endpoint:  ep,
 		maxTasks:  1,
 		leaseTime: time.Hour,
+		decode:    NoOpDecoder,
 	}
 	for _, opt := range opts {
 		opt(e)

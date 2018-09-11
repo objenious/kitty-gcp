@@ -5,26 +5,42 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
 	tasksapi "cloud.google.com/go/cloudtasks/apiv2beta2"
 	"github.com/go-kit/kit/endpoint"
 	"github.com/golang/protobuf/ptypes/duration"
+	"github.com/kelseyhightower/envconfig"
 	"github.com/objenious/kitty"
+	"golang.org/x/sync/errgroup"
 	taskspb "google.golang.org/genproto/googleapis/cloud/tasks/v2beta2"
 )
 
+// TransportConfig is the configuration of Transport
+type TransportConfig struct {
+	CheckContextPeriodInMilliseconds int `default:"1000" envconfig:"check_context_period_ms"`
+}
+
 // Transport is the Cloud Tasks Transport
 type Transport struct {
+	cfg       TransportConfig
 	gctc      *tasksapi.Client
 	endpoints []*Endpoint
 }
 
 var _ kitty.Transport = &Transport{}
 
-// NewTransport creates a new Cloud Tasks client.
+// NewTransportWithConfig creates a new Cloud Tasks client.
+func NewTransportWithConfig(cfg TransportConfig) *Transport {
+	return &Transport{cfg: cfg}
+}
+
+// NewTransport create a new Cloud Tasks client.
 func NewTransport() *Transport {
-	return &Transport{}
+	cfg := TransportConfig{}
+	err := envconfig.Process("cloudtasks", &cfg)
+	if err != nil {
+		panic(err)
+	}
+	return NewTransportWithConfig(cfg)
 }
 
 // Start starts pulling msg from Cloud Tasks.
@@ -44,7 +60,7 @@ func (t *Transport) Start(ctx context.Context) error {
 
 func (t *Transport) consumer(ctx context.Context, e *Endpoint) func() error {
 	return func() error {
-		ticker := time.NewTicker(time.Second)
+		ticker := time.NewTicker(time.Duration(t.cfg.CheckContextPeriodInMilliseconds) * time.Millisecond)
 		defer ticker.Stop()
 		for {
 			select {
@@ -57,10 +73,7 @@ func (t *Transport) consumer(ctx context.Context, e *Endpoint) func() error {
 				}
 				for i := range msgs {
 					taskCtx := PopulateRequestContext(ctx, msgs[i])
-					err = t.process(taskCtx, e, msgs[i])
-					if err != nil {
-						kitty.Logger(taskCtx).Log(err)
-					}
+					_ = t.process(taskCtx, e, msgs[i])
 				}
 			}
 		}
@@ -94,11 +107,7 @@ func (t *Transport) process(ctx context.Context, e *Endpoint, msg *taskspb.Task)
 		s   interface{}
 		err error
 	)
-	if e.decode != nil {
-		s, err = e.decode(pm.GetPayload())
-	} else {
-		s = pm.GetPayload()
-	}
+	s, err = e.decode(pm.GetPayload())
 	if err == nil {
 		_, err = e.endpoint(ctx, s)
 	}
@@ -112,8 +121,7 @@ func (t *Transport) process(ctx context.Context, e *Endpoint, msg *taskspb.Task)
 				err = t.nackWithDelay(ctx, msg, delay)
 			}
 		} else {
-			_ = kitty.Logger(ctx).Log(err)
-			err = t.ack(ctx, msg)
+			_ = t.ack(ctx, msg)
 		}
 	} else {
 		err = t.ack(ctx, msg)
@@ -130,10 +138,10 @@ func (t *Transport) leaseTasks(ctx context.Context, e *Endpoint) ([]*taskspb.Tas
 		},
 		ResponseView: taskspb.Task_FULL,
 	})
-	if tasksResp != nil {
-		return tasksResp.GetTasks(), err
+	if err != nil {
+		return nil, err
 	}
-	return nil, err
+	return tasksResp.GetTasks(), nil
 }
 
 func (t *Transport) ack(ctx context.Context, task *taskspb.Task) error {
