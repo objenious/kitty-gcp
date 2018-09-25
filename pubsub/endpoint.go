@@ -1,6 +1,7 @@
 package pubsub
 
 import (
+	"context"
 	"time"
 
 	"cloud.google.com/go/pubsub"
@@ -11,7 +12,7 @@ import (
 type EndpointOption func(*Endpoint)
 
 // DecodeRequestFunc is a function to decode pub/sub message and return structured data
-type DecodeRequestFunc func([]byte) (interface{}, error)
+type DecodeRequestFunc func(context.Context, []byte) (interface{}, error)
 
 // Endpoint for this pubsub transport
 type Endpoint struct {

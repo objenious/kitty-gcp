@@ -200,7 +200,7 @@ type testStruct struct {
 	Status int    `json:"status"`
 }
 
-func decode(b []byte) (interface{}, error) {
+func decode(ctx context.Context, b []byte) (interface{}, error) {
 	d := &testStruct{}
 	err := json.Unmarshal(b, d)
 	if err != nil {

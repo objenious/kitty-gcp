@@ -77,7 +77,7 @@ func (t *Transport) Start(ctx context.Context) error {
 				err error
 			)
 			if e.decode != nil {
-				dec, err = e.decode(msg.Data)
+				dec, err = e.decode(ctx, msg.Data)
 			} else {
 				dec = msg.Data
 			}
