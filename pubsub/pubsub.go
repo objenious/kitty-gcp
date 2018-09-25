@@ -108,3 +108,8 @@ func (t *Transport) RegisterEndpoints(m endpoint.Middleware) error {
 func (t *Transport) Shutdown(ctx context.Context) error {
 	return t.c.Close()
 }
+
+// LogKeys returns the log keys
+func (t *Transport) LogKeys() map[string]interface{} {
+	return map[string]interface{}{}
+}
