@@ -120,7 +120,7 @@ func (*Transport) LogKeys() map[string]interface{} {
 }
 
 // PopulateRequestContext is a RequestFunc that populates several values into
-// the context from the HTTP request. Those values may be extracted using the
+// the context from the pub/sub message. Those values may be extracted using the
 // corresponding ContextKey type in this package.
 func PopulateRequestContext(ctx context.Context, msg *pubsub.Message) context.Context {
 	for k, v := range map[contextKey]string{

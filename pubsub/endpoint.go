@@ -27,17 +27,17 @@ type Endpoint struct {
 	subscription *pubsub.Subscription
 }
 
-// Decoder set the decode function for requests in the endpoint
+// Decoder sets the decode function for requests in the endpoint
 func Decoder(d DecodeRequestFunc) func(e *Endpoint) {
 	return func(e *Endpoint) { e.decode = d }
 }
 
-// MaxOutstandingMessages add a decoder in the endpoint
+// MaxOutstandingMessages sets the max outstanding messages
 func MaxOutstandingMessages(n int) func(e *Endpoint) {
 	return func(e *Endpoint) { e.maxOutstandingMessages = n }
 }
 
-// MaxExtension add a decoder in the endpoint
+// MaxExtension sets the max extension duration
 func MaxExtension(d time.Duration) func(e *Endpoint) {
 	return func(e *Endpoint) { e.maxExtension = d }
 }
