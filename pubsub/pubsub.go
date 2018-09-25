@@ -3,7 +3,6 @@ package pubsub
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"cloud.google.com/go/pubsub"
 	"github.com/go-kit/kit/endpoint"
@@ -112,9 +111,7 @@ func (t *Transport) Shutdown(ctx context.Context) error {
 }
 
 var logKeys = map[string]interface{}{
-	"pubsub-publish-time": contextKeyPublishTime,
-	"pubsub-id":           contextKeyID,
-	"pubsub-attributes":   contextKeyAttributes,
+	"pubsub-id": contextKeyID,
 }
 
 // LogKeys returns the keys for logging
@@ -127,19 +124,15 @@ func (*Transport) LogKeys() map[string]interface{} {
 // corresponding ContextKey type in this package.
 func PopulateRequestContext(ctx context.Context, msg *pubsub.Message) context.Context {
 	for k, v := range map[contextKey]string{
-		contextKeyPublishTime: msg.PublishTime.Format(time.RFC3339),
-		contextKeyID:          msg.ID,
-		contextKeyAttributes:  fmt.Sprintf("%+v", msg.Attributes),
+		contextKeyID: msg.ID,
 	} {
 		ctx = context.WithValue(ctx, k, v)
 	}
 	return ctx
 }
 
-type contextKey string
+type contextKey int
 
 const (
-	contextKeyPublishTime contextKey = "publishTime"
-	contextKeyID          contextKey = "id"
-	contextKeyAttributes  contextKey = "attributes"
+	contextKeyID contextKey = iota
 )
