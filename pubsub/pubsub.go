@@ -3,6 +3,7 @@ package pubsub
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"cloud.google.com/go/pubsub"
 	"github.com/go-kit/kit/endpoint"
@@ -66,6 +67,7 @@ func (t *Transport) Start(ctx context.Context) error {
 			e.subscription.ReceiveSettings.MaxOutstandingMessages = e.maxOutstandingMessages
 		}
 		err = e.subscription.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
+			PopulateRequestContext(ctx, msg)
 			defer func() {
 				if r := recover(); r != nil {
 					msg.Nack()
@@ -109,7 +111,33 @@ func (t *Transport) Shutdown(ctx context.Context) error {
 	return t.c.Close()
 }
 
-// LogKeys returns the log keys
-func (t *Transport) LogKeys() map[string]interface{} {
-	return map[string]interface{}{}
+var logKeys = map[string]interface{}{
+	"pubsub-topic-id":        nil,
+	"pubsub-subscription-id": nil,
 }
+
+// LogKeys returns the keys for logging
+func (*Transport) LogKeys() map[string]interface{} {
+	return logKeys
+}
+
+// PopulateRequestContext is a RequestFunc that populates several values into
+// the context from the HTTP request. Those values may be extracted using the
+// corresponding ContextKey type in this package.
+func PopulateRequestContext(ctx context.Context, msg *pubsub.Message) context.Context {
+	for k, v := range map[contextKey]string{
+		contextKeyPublishTime: msg.PublishTime.Format(time.RFC3339),
+	} {
+		ctx = context.WithValue(ctx, k, v)
+	}
+	for k, v := range msg.Attributes {
+		ctx = context.WithValue(ctx, contextKey(k), v)
+	}
+	return ctx
+}
+
+type contextKey string
+
+const (
+	contextKeyPublishTime contextKey = "publishTime"
+)
