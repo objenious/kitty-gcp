@@ -112,8 +112,9 @@ func (t *Transport) Shutdown(ctx context.Context) error {
 }
 
 var logKeys = map[string]interface{}{
-	"pubsub-topic-id":        nil,
-	"pubsub-subscription-id": nil,
+	"pubsub-publish-time": contextKeyPublishTime,
+	"pubsub-id":           contextKeyID,
+	"pubsub-attributes":   contextKeyAttributes,
 }
 
 // LogKeys returns the keys for logging
@@ -127,11 +128,10 @@ func (*Transport) LogKeys() map[string]interface{} {
 func PopulateRequestContext(ctx context.Context, msg *pubsub.Message) context.Context {
 	for k, v := range map[contextKey]string{
 		contextKeyPublishTime: msg.PublishTime.Format(time.RFC3339),
+		contextKeyID:          msg.ID,
+		contextKeyAttributes:  fmt.Sprintf("%+v", msg.Attributes),
 	} {
 		ctx = context.WithValue(ctx, k, v)
-	}
-	for k, v := range msg.Attributes {
-		ctx = context.WithValue(ctx, contextKey(k), v)
 	}
 	return ctx
 }
@@ -140,4 +140,6 @@ type contextKey string
 
 const (
 	contextKeyPublishTime contextKey = "publishTime"
+	contextKeyID          contextKey = "id"
+	contextKeyAttributes  contextKey = "attributes"
 )
