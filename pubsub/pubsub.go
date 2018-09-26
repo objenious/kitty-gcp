@@ -10,7 +10,7 @@ import (
 	"github.com/objenious/kitty"
 )
 
-// Transport is a transport that receives Records from PubSub
+// Transport is a transport that receives requests from PubSub
 type Transport struct {
 	projectID string
 	c         *pubsub.Client
@@ -19,14 +19,14 @@ type Transport struct {
 
 var _ kitty.Transport = &Transport{}
 
-// NewTransport creates a new Transport using the config from env and default dependencies
+// NewTransport creates a new Transport for the related Google Cloud Project
 func NewTransport(ctx context.Context, projectID string) *Transport {
 	return &Transport{
 		projectID: projectID,
 	}
 }
 
-// Endpoint create a new Endpoint using config & dependencies
+// Endpoint creates a new Endpoint
 func (t *Transport) Endpoint(subscriptionName string, endpoint endpoint.Endpoint, options ...EndpointOption) *Transport {
 	e := &Endpoint{
 		subscriptionName: subscriptionName,
@@ -97,7 +97,7 @@ func (t *Transport) Start(ctx context.Context) error {
 	return nil
 }
 
-// RegisterEndpoints register endpoint
+// RegisterEndpoints registers a middleware to all registered endpoints at that time
 func (t *Transport) RegisterEndpoints(m endpoint.Middleware) error {
 	for _, e := range t.endpoints {
 		e.endpoint = m(e.endpoint)
