@@ -67,10 +67,10 @@ func (t *Transport) consume(ctx context.Context, e *Endpoint) error {
 	if e.maxOutstandingMessages > 0 {
 		e.subscription.ReceiveSettings.MaxOutstandingMessages = e.maxOutstandingMessages
 	}
-	return e.subscription.Receive(ctx, receive(e))
+	return e.subscription.Receive(ctx, makeReceiveFunc(e))
 }
 
-func receive(e *Endpoint) func(ctx context.Context, msg *pubsub.Message) {
+func makeReceiveFunc(e *Endpoint) func(ctx context.Context, msg *pubsub.Message) {
 	return func(ctx context.Context, msg *pubsub.Message) {
 		PopulateRequestContext(ctx, msg)
 		defer func() {
