@@ -11,9 +11,8 @@ before_install:
   - sudo apt-get update && sudo apt-get install -y google-cloud-sdk google-cloud-sdk-pubsub-emulator
   - go get github.com/mattn/goveralls
 before_script:
-  - gcloud beta emulators pubsub start &
+  - nohup gcloud beta emulators pubsub start
   - sleep 3s
   - $(gcloud beta emulators pubsub env-init)
 script:
-  - $GOPATH/bin/goveralls -service=travis-ci
-  - pkill -o gcloud
+  - $GOPATH/bin/goveralls -service=travis-ci ; pkill -o gcloud
