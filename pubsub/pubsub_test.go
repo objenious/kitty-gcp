@@ -27,7 +27,7 @@ func testEP(_ context.Context, req interface{}) (interface{}, error) {
 }
 
 // to launch before : gcloud beta emulators pubsub start
-func TestServer(t *testing.T) {
+func TestPubSubOneTopic(t *testing.T) {
 	ctx := context.TODO()
 	projectName := "project"
 	topicName := "pub"
@@ -104,7 +104,7 @@ func TestServer(t *testing.T) {
 }
 
 // to launch before : gcloud beta emulators pubsub start
-func TestServerWithMultipleEndpoints(t *testing.T) {
+func TestPubSubWithMultipleEndpoints(t *testing.T) {
 	ctx := context.TODO()
 	projectName := "project"
 	topicName := "pub"
@@ -186,8 +186,13 @@ func TestServerWithMultipleEndpoints(t *testing.T) {
 	go func() {
 		exitError <- srv.Run(ctx)
 	}()
+	i := 0
 	for tr.c == nil {
 		time.Sleep(time.Millisecond)
+		if i > 10000 {
+			t.Errorf("more than 10 seconds to get google pubsub client")
+			break
+		}
 	}
 
 	{
