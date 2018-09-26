@@ -14,3 +14,6 @@ before_script:
   - gcloud beta emulators pubsub start &
   - sleep 3s
   - $(gcloud beta emulators pubsub env-init)
+script:
+  - $GOPATH/bin/goveralls -service=travis-ci
+  - killall gcloud
