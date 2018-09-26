@@ -3,19 +3,14 @@ package pubsub
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
 
 	"cloud.google.com/go/pubsub"
 	"github.com/objenious/kitty"
-	"github.com/pkg/errors"
-	"github.com/stretchr/testify/assert"
 )
-
-type msgTest struct {
-	Msg string `json:"msg"`
-}
 
 var (
 	testCh = make(chan interface{})
@@ -23,7 +18,7 @@ var (
 
 func testEP(_ context.Context, req interface{}) (interface{}, error) {
 	if r, ok := req.(*testStruct); ok && r.Status != 0 {
-		err := errors.Errorf("status=%v", r.Status)
+		err := fmt.Errorf("status=%d", r.Status)
 		testCh <- err
 		return nil, err
 	}
@@ -38,23 +33,35 @@ func TestServer(t *testing.T) {
 	topicName := "pub"
 	subscriptionName := "sub"
 	c, err := pubsub.NewClient(ctx, projectName)
-	assert.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	topic := c.Topic(topicName)
 	topicExists, err := topic.Exists(ctx)
-	assert.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !topicExists {
 		topic, err = c.CreateTopic(ctx, topicName)
-		assert.NoError(t, err)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	subscription := c.Subscription(subscriptionName)
 	subExists, err := subscription.Exists(ctx)
-	assert.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !subExists {
-		subscription, err = c.CreateSubscription(ctx, subscriptionName, pubsub.SubscriptionConfig{Topic: topic})
-		assert.NoError(t, err)
+		_, err = c.CreateSubscription(ctx, subscriptionName, pubsub.SubscriptionConfig{Topic: topic})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	err = c.Close()
-	assert.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	shutdownCalled := false
 	ctx, cancel := context.WithCancel(context.Background())
@@ -106,42 +113,65 @@ func TestServerWithMultipleEndpoints(t *testing.T) {
 	subscriptionName2 := "sub2"
 
 	c, err := pubsub.NewClient(ctx, projectName)
-	assert.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	topic := c.Topic(topicName)
 	topicExists, err := topic.Exists(ctx)
-	assert.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !topicExists {
 		topic, err = c.CreateTopic(ctx, topicName)
-		assert.NoError(t, err)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	subscription := c.Subscription(subscriptionName)
 	subExists, err := subscription.Exists(ctx)
-	assert.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	if !subExists {
-		subscription, err = c.CreateSubscription(ctx, subscriptionName, pubsub.SubscriptionConfig{Topic: topic})
-		assert.NoError(t, err)
+		_, err = c.CreateSubscription(ctx, subscriptionName, pubsub.SubscriptionConfig{Topic: topic})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	topic2 := c.Topic(topicName2)
 	topicExists, err = topic2.Exists(ctx)
-	assert.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	if !topicExists {
 		topic2, err = c.CreateTopic(ctx, topicName2)
-		assert.NoError(t, err)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	subscription2 := c.Subscription(subscriptionName2)
 	subExists, err = subscription2.Exists(ctx)
-	assert.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	if !subExists {
-		subscription2, err = c.CreateSubscription(ctx, subscriptionName2, pubsub.SubscriptionConfig{Topic: topic2})
-		assert.NoError(t, err)
+		_, err = c.CreateSubscription(ctx, subscriptionName2, pubsub.SubscriptionConfig{Topic: topic2})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	err = c.Close()
-	assert.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	shutdownCalled := false
 	ctx, cancel := context.WithCancel(context.Background())
@@ -213,5 +243,5 @@ func decode(ctx context.Context, b []byte) (interface{}, error) {
 func send(ctx context.Context, topic string, c *pubsub.Client, data []byte) {
 	t := c.Topic(topic)
 	res := t.Publish(ctx, &pubsub.Message{Data: data})
-	_ = <-res.Ready()
+	<-res.Ready()
 }

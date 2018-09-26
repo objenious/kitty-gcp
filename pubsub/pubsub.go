@@ -6,7 +6,6 @@ import (
 
 	"cloud.google.com/go/pubsub"
 	"github.com/go-kit/kit/endpoint"
-	"github.com/objenious/errorutil"
 	"github.com/objenious/kitty"
 )
 
@@ -39,11 +38,6 @@ func (t *Transport) Endpoint(subscriptionName string, endpoint endpoint.Endpoint
 	return t
 }
 
-// Close stops listening to PubSub
-func (t *Transport) Close() {
-	t.c.Close()
-}
-
 // Start starts listening to PubSub
 func (t *Transport) Start(ctx context.Context) error {
 	var err error
@@ -52,49 +46,56 @@ func (t *Transport) Start(ctx context.Context) error {
 		return err
 	}
 	for _, e := range t.endpoints {
-		e.subscription = t.c.Subscription(e.subscriptionName)
-		exists, err := e.subscription.Exists(ctx)
-		if err != nil {
-			return err
-		} else if !exists {
-			return fmt.Errorf("The subscription %s does not exists", e.subscriptionName)
-		}
-		if e.maxExtension > 0 {
-			e.subscription.ReceiveSettings.MaxExtension = e.maxExtension
-		}
-		if e.maxOutstandingMessages > 0 {
-			e.subscription.ReceiveSettings.MaxOutstandingMessages = e.maxOutstandingMessages
-		}
-		err = e.subscription.Receive(ctx, func(ctx context.Context, msg *pubsub.Message) {
-			PopulateRequestContext(ctx, msg)
-			defer func() {
-				if r := recover(); r != nil {
-					msg.Nack()
-				}
-			}()
-			var (
-				dec interface{}
-				err error
-			)
-			if e.decode != nil {
-				dec, err = e.decode(ctx, msg.Data)
-			} else {
-				dec = msg.Data
-			}
-			if err == nil {
-				_, err = e.endpoint(ctx, dec)
-			}
-			if errorutil.IsRetryable(err) {
-				msg.Nack()
-			} else {
-				msg.Ack()
-			}
-		})
-		if err != nil {
+		if err = t.consume(ctx, e); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (t *Transport) consume(ctx context.Context, e *Endpoint) error {
+	e.subscription = t.c.Subscription(e.subscriptionName)
+	exists, err := e.subscription.Exists(ctx)
+	if err != nil {
+		return err
+	} else if !exists {
+		return fmt.Errorf("The subscription %s does not exists", e.subscriptionName)
+	}
+	if e.maxExtension > 0 {
+		e.subscription.ReceiveSettings.MaxExtension = e.maxExtension
+	}
+	if e.maxOutstandingMessages > 0 {
+		e.subscription.ReceiveSettings.MaxOutstandingMessages = e.maxOutstandingMessages
+	}
+	return e.subscription.Receive(ctx, receive(e))
+}
+
+func receive(e *Endpoint) func(ctx context.Context, msg *pubsub.Message) {
+	return func(ctx context.Context, msg *pubsub.Message) {
+		PopulateRequestContext(ctx, msg)
+		defer func() {
+			if r := recover(); r != nil {
+				msg.Nack()
+			}
+		}()
+		var (
+			dec interface{}
+			err error
+		)
+		if e.decode != nil {
+			dec, err = e.decode(ctx, msg.Data)
+		} else {
+			dec = msg.Data
+		}
+		if err == nil {
+			_, err = e.endpoint(ctx, dec)
+		}
+		if kitty.IsRetryable(err) {
+			msg.Nack()
+		} else {
+			msg.Ack()
+		}
+	}
 }
 
 // RegisterEndpoints registers a middleware to all registered endpoints at that time
@@ -105,7 +106,7 @@ func (t *Transport) RegisterEndpoints(m endpoint.Middleware) error {
 	return nil
 }
 
-// Shutdown shutdowns the cloud tasks transport
+// Shutdown shutdowns the google pubsub client
 func (t *Transport) Shutdown(ctx context.Context) error {
 	return t.c.Close()
 }
