@@ -9,3 +9,7 @@ before_install:
 script:
   - $GOPATH/bin/goveralls -service=travis-ci
   
+before_install:
+  - wget https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-218.0.0-linux-x86_64.tar.gz && tar -xzvf google-cloud-sdk-218.0.0-linux-x86_64.tar.gz && sudo ./google-cloud-sdk/install.sh
+  - gcloud beta emulators pubsub start &
+  - $(gcloud beta emulators pubsub env-init)
