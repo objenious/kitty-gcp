@@ -14,6 +14,6 @@ before_script:
   - nohup gcloud beta emulators pubsub start &
   - sleep 3s
   - $(gcloud beta emulators pubsub env-init)
-  - nohup bash -c "sleep 40s && killall gcloud"
+  - nohup bash -c "sleep 40s && killall gcloud" &
 script:
   - $GOPATH/bin/goveralls -service=travis-ci
