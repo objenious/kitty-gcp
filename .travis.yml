@@ -11,8 +11,8 @@ before_install:
   - go get github.com/mattn/goveralls
 before_script:
   - nohup gcloud beta emulators pubsub start &
-  - sleep 3s
+  - sleep 5s
   - $(gcloud beta emulators pubsub env-init)
-  - nohup bash -c "sleep 40s && killall gcloud" &
+  - nohup bash -c "sleep 120s && killall gcloud && pkill -o goveralls" &
 script:
   - $GOPATH/bin/goveralls -service=travis-ci
