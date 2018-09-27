@@ -2,13 +2,7 @@ language: go
 
 go:
   - 1.x
-
-cache:
-  yarn: true
-
-addons:
-  apt_packages:
-    - pandoc
+  - 1.9.x
 
 before_install:
   - export CLOUD_SDK_REPO="cloud-sdk-$(lsb_release -c -s)"
@@ -19,11 +13,11 @@ before_install:
 
 before_script:
   - screen -S emu -d -m gcloud beta emulators pubsub start
-  - sleep 5s
+  - sleep 15s
   - $(gcloud beta emulators pubsub env-init)
 
 script:
   - $GOPATH/bin/goveralls -service=travis-ci
 
 after_script:
-- screen -ls | grep emu | awk '{print $1}' | xargs -I{} screen -S {} -X quit
+  - screen -ls | grep emu | awk '{print $1}' | xargs -I{} screen -S {} -X quit
