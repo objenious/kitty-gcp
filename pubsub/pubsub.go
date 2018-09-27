@@ -45,12 +45,14 @@ func (t *Transport) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	exit := make(chan error)
 	for _, e := range t.endpoints {
-		if err = t.consume(ctx, e); err != nil {
-			return err
-		}
+		endpoint := e
+		go func() {
+			exit <- t.consume(ctx, endpoint)
+		}()
 	}
-	return nil
+	return <-exit
 }
 
 func (t *Transport) consume(ctx context.Context, e *Endpoint) error {
