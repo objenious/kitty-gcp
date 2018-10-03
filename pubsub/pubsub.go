@@ -7,6 +7,7 @@ import (
 	"cloud.google.com/go/pubsub"
 	"github.com/go-kit/kit/endpoint"
 	"github.com/objenious/kitty"
+	"golang.org/x/sync/errgroup"
 )
 
 // Transport is a transport that receives requests from PubSub
@@ -45,14 +46,14 @@ func (t *Transport) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	exit := make(chan error)
+	var g errgroup.Group
 	for _, e := range t.endpoints {
 		endpoint := e
-		go func() {
-			exit <- t.consume(ctx, endpoint)
-		}()
+		g.Go(func() error {
+			return t.consume(ctx, endpoint)
+		})
 	}
-	return <-exit
+	return g.Wait()
 }
 
 func (t *Transport) consume(ctx context.Context, e *Endpoint) error {
