@@ -230,9 +230,9 @@ type testStruct struct {
 	Status int    `json:"status"`
 }
 
-func decode(ctx context.Context, b []byte) (interface{}, error) {
+func decode(ctx context.Context, m *pubsub.Message) (interface{}, error) {
 	d := &testStruct{}
-	err := json.Unmarshal(b, d)
+	err := json.Unmarshal(m.Data, d)
 	if err != nil {
 		return nil, err
 	}

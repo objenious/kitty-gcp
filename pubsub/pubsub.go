@@ -83,9 +83,9 @@ func makeReceiveFunc(e *Endpoint) func(ctx context.Context, msg *pubsub.Message)
 			err error
 		)
 		if e.decode != nil {
-			dec, err = e.decode(ctx, msg.Data)
+			dec, err = e.decode(ctx, msg)
 		} else {
-			dec = msg.Data
+			dec = msg
 		}
 		if err == nil {
 			_, err = e.endpoint(ctx, dec)

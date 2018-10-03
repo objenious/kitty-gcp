@@ -12,7 +12,7 @@ import (
 type EndpointOption func(*Endpoint)
 
 // DecodeRequestFunc is a function to decode pub/sub message and return structured data
-type DecodeRequestFunc func(context.Context, []byte) (interface{}, error)
+type DecodeRequestFunc func(context.Context, *pubsub.Message) (interface{}, error)
 
 // Endpoint for this pubsub transport
 type Endpoint struct {
