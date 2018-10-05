@@ -70,6 +70,10 @@ func (t *Transport) consume(ctx context.Context, e *Endpoint) error {
 	if e.maxOutstandingMessages > 0 {
 		e.subscription.ReceiveSettings.MaxOutstandingMessages = e.maxOutstandingMessages
 	}
+	e.subscription.ReceiveSettings.Synchronous = e.synchronous
+	if e.numGoRoutines > 0 {
+		e.subscription.ReceiveSettings.NumGoroutines = e.numGoRoutines
+	}
 	return e.subscription.Receive(ctx, makeReceiveFunc(e))
 }
 

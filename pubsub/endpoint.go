@@ -22,6 +22,8 @@ type Endpoint struct {
 	decode                 DecodeRequestFunc
 	maxOutstandingMessages int
 	maxExtension           time.Duration
+	synchronous            bool
+	numGoRoutines          int
 	// runtime
 	endpoint     endpoint.Endpoint
 	subscription *pubsub.Subscription
@@ -40,4 +42,14 @@ func MaxOutstandingMessages(n int) func(e *Endpoint) {
 // MaxExtension sets the max extension duration
 func MaxExtension(d time.Duration) func(e *Endpoint) {
 	return func(e *Endpoint) { e.maxExtension = d }
+}
+
+// Synchronous sets the synchronous mode
+func Synchronous(b bool) func(e *Endpoint) {
+	return func(e *Endpoint) { e.synchronous = b }
+}
+
+// NumGoRoutines sets the number of Go routines
+func NumGoRoutines(n int) func(e *Endpoint) {
+	return func(e *Endpoint) { e.numGoRoutines = n }
 }
