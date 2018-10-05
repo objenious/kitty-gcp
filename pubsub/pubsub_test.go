@@ -25,6 +25,61 @@ func testEP(_ context.Context, req interface{}) (interface{}, error) {
 }
 
 // to launch before : gcloud beta emulators pubsub start
+func TestPubSubOneSyncTopic(t *testing.T) {
+	projectName := "project"
+	topicName := "topicSync"
+	subscriptionName := "subscriptionSync"
+	ctx := context.TODO()
+
+	c, err := pubsub.NewClient(ctx, projectName)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	err = createTopicAndSubscribtion(ctx, c, topicName, subscriptionName)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	err = c.Close()
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	shutdownCalled := false
+	ctx, cancel := context.WithCancel(context.Background())
+	exitError := make(chan error)
+	tr := NewTransport(ctx, "project").Endpoint(subscriptionName, testEP, Decoder(decode), Synchronous(true))
+	srv := kitty.NewServer(tr).Shutdown(func() {
+		shutdownCalled = true
+	})
+	go func() {
+		exitError <- srv.Run(ctx)
+	}()
+	for tr.c == nil {
+		time.Sleep(time.Millisecond)
+	}
+
+	sendThenReceiveWithTimeout(ctx, t, tr.c, topicName)
+
+	cancel()
+	select {
+	case <-time.After(10 * time.Second):
+		t.Error("Server.Run has not stopped after 10sec")
+	case err := <-exitError:
+		if err != nil && err != context.Canceled {
+			t.Errorf("Server.Run returned an error : %s", err)
+		}
+	}
+	if !shutdownCalled {
+		t.Error("Shutdown functions are not called")
+	}
+}
+
+// to launch before : gcloud beta emulators pubsub start
 func TestPubSubOneTopic(t *testing.T) {
 	projectName := "project"
 	topicName := "topic"
