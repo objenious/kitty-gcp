@@ -128,7 +128,10 @@ func (t *Transport) RegisterEndpoints(m endpoint.Middleware) error {
 
 // Shutdown shutdowns the google pubsub client
 func (t *Transport) Shutdown(ctx context.Context) error {
-	return t.c.Close()
+	if t.c != nil {
+		return t.c.Close()
+	}
+	return nil
 }
 
 var logKeys = map[string]interface{}{
