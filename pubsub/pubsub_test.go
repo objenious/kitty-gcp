@@ -3,73 +3,241 @@ package pubsub
 import (
 	"context"
 	"encoding/json"
-	"reflect"
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"cloud.google.com/go/pubsub"
+	"github.com/go-kit/kit/endpoint"
 	"github.com/objenious/kitty"
 )
 
-var (
-	testCh = make(chan interface{}, 1)
-)
+const project = "project"
 
-func testEP(_ context.Context, req interface{}) (interface{}, error) {
-	if _, ok := req.(*testStruct); ok {
-		testCh <- req
-		return nil, nil
+func makeTestEP(resChan chan *testStruct) endpoint.Endpoint {
+	return func(_ context.Context, req interface{}) (interface{}, error) {
+		if r, ok := req.(*testStruct); ok {
+			resChan <- r
+			return nil, nil
+		}
+		return nil, errors.New("invalid format")
 	}
-	testCh <- nil
-	return nil, nil
+}
+
+func makeTransport(ctx context.Context, errChan chan error) *Transport {
+	return NewTransport(ctx, project).Middleware(func(h Handler) Handler {
+		return func(ctx context.Context, msg *pubsub.Message) error {
+			err := h(ctx, msg)
+			if err != nil {
+				errChan <- err
+			}
+			return err
+		}
+	})
 }
 
 // to launch before : gcloud beta emulators pubsub start
-func TestPubSubOneSyncTopic(t *testing.T) {
-	projectName := "project"
-	topicName := "topicSync"
-	subscriptionName := "subscriptionSync"
-	ctx := context.TODO()
-
-	c, err := pubsub.NewClient(ctx, projectName)
+func TestSingleEndpoint(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	err := createTopicAndSub(ctx, "pub", "sub")
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
 
-	err = createTopicAndSubscribtion(ctx, c, topicName, subscriptionName)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
-	err = c.Close()
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
-	shutdownCalled := false
-	ctx, cancel := context.WithCancel(context.Background())
-	exitError := make(chan error)
-	tr := NewTransport(ctx, "project").Endpoint(subscriptionName, testEP, Decoder(decode), Synchronous(true))
-	srv := kitty.NewServer(tr).Shutdown(func() {
-		shutdownCalled = true
-	})
+	resChan := make(chan *testStruct)
+	errChan := make(chan error)
+	tr := makeTransport(ctx, errChan).Endpoint("sub", makeTestEP(resChan), Decoder(decode))
 	go func() {
-		exitError <- srv.Run(ctx)
+		kitty.NewServer(tr).Run(ctx)
 	}()
-	for tr.c == nil {
-		time.Sleep(time.Millisecond)
+
+	{
+		send(ctx, "pub", tr, []byte(`{"foo":"bar"}`))
+		if err != nil {
+			t.Fatalf("send to pubsub : %s", err)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("timeout")
+		case err := <-errChan:
+			t.Errorf("endpoint returned an error: %v", err)
+		case res := <-resChan:
+			if res.Foo != "bar" {
+				t.Errorf("endpoint received invalid data: %+v", res)
+			}
+		}
+	}
+}
+
+// to launch before : gcloud beta emulators pubsub start
+func TestSynchronous(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	err := createTopicAndSub(ctx, "syncpub", "syncsub")
+	if err != nil {
+		t.Fatal(err)
+		return
 	}
 
-	sendThenReceiveWithTimeout(ctx, t, tr.c, topicName)
+	resChan := make(chan *testStruct)
+	errChan := make(chan error)
+	tr := makeTransport(ctx, errChan).Endpoint("syncsub", makeTestEP(resChan), Decoder(decode), Synchronous(true))
+	go func() {
+		kitty.NewServer(tr).Run(ctx)
+	}()
+
+	{
+		send(ctx, "syncpub", tr, []byte(`{"foo":"bar"}`))
+		if err != nil {
+			t.Fatalf("send to pubsub : %s", err)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("timeout")
+		case err := <-errChan:
+			t.Errorf("endpoint returned an error: %v", err)
+		case res := <-resChan:
+			if res.Foo != "bar" {
+				t.Errorf("endpoint received invalid data: %+v", res)
+			}
+		}
+	}
+}
+
+// to launch before : gcloud beta emulators pubsub start
+func TestMultipleEndpoints(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	err := createTopicAndSub(ctx, "mpub", "msub")
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+	err = createTopicAndSub(ctx, "mpub2", "msub2")
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+	errChan := make(chan error)
+	resChan := make(chan *testStruct)
+	res2Chan := make(chan *testStruct)
+	tr := makeTransport(ctx, errChan).
+		Endpoint("msub", makeTestEP(resChan), Decoder(decode)).
+		Endpoint("msub2", makeTestEP(res2Chan), Decoder(decode))
+
+	go func() {
+		kitty.NewServer(tr).Run(ctx)
+	}()
+
+	{
+		err := send(ctx, "mpub", tr, []byte(`{"foo":"bar"}`))
+		if err != nil {
+			t.Fatalf("send to pubsub : %s", err)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("nothing received before timeout")
+		case err := <-errChan:
+			t.Errorf("endpoint returned an error: %v", err)
+		case res := <-resChan:
+			if res.Foo != "bar" {
+				t.Errorf("endpoint received invalid data: %+v", res)
+			}
+		case <-res2Chan:
+			t.Error("wrong endpoint called")
+		}
+	}
+	{
+		err := send(ctx, "mpub2", tr, []byte(`{"foo":"bar2"}`))
+		if err != nil {
+			t.Fatalf("send to pubsub : %s", err)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("nothing received before timeout")
+		case err := <-errChan:
+			t.Errorf("endpoint returned an error: %v", err)
+		case <-resChan:
+			t.Error("wrong endpoint called")
+		case res := <-res2Chan:
+			if res.Foo != "bar2" {
+				t.Errorf("endpoint received invalid data: %+v", res)
+			}
+		}
+	}
+}
+
+// to launch before : gcloud beta emulators pubsub start
+func TestErrors(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	err := createTopicAndSub(ctx, "epub", "esub")
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	errChan := make(chan error)
+	tr := makeTransport(ctx, errChan).Endpoint("esub", func(_ context.Context, req interface{}) (interface{}, error) { return nil, errors.New("foo") }, Decoder(decode))
+	go func() {
+		kitty.NewServer(tr).Run(ctx)
+	}()
+
+	{
+		err := send(ctx, "epub", tr, []byte(`{"foo":"bar"}`))
+		if err != nil {
+			t.Fatalf("send to pubsub : %s", err)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("nothing received before timeout")
+		case err := <-errChan:
+			if err.Error() != "foo" {
+				t.Errorf("endpoint returned an invalid error: %v (should have been an endpoint error)", err)
+			}
+		}
+	}
+	{
+		err := send(ctx, "epub", tr, []byte(`{"foo":1}`))
+		if err != nil {
+			t.Fatalf("send to pubsub : %s", err)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("nothing received before timeout")
+		case err := <-errChan:
+			if !strings.HasPrefix(err.Error(), "decode error") {
+				t.Errorf("endpoint returned an invalid error: %v (should have been a decode error)", err)
+			}
+		}
+	}
+}
+
+// to launch before : gcloud beta emulators pubsub start
+func TestShutdown(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	err := createTopicAndSub(ctx, "xpub", "xsub")
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+	shutdownCalled := false
+	exitChan := make(chan error)
+	tr := NewTransport(ctx, project).Endpoint("xsub", func(_ context.Context, req interface{}) (interface{}, error) { return nil, nil })
+	go func() {
+		srv := kitty.NewServer(tr).Shutdown(func() {
+			shutdownCalled = true
+		})
+		exitChan <- srv.Run(ctx)
+	}()
 
 	cancel()
 	select {
-	case <-time.After(10 * time.Second):
-		t.Error("Server.Run has not stopped after 10sec")
-	case err := <-exitError:
+	case err := <-exitChan:
 		if err != nil && err != context.Canceled {
 			t.Errorf("Server.Run returned an error : %s", err)
 		}
@@ -77,177 +245,48 @@ func TestPubSubOneSyncTopic(t *testing.T) {
 	if !shutdownCalled {
 		t.Error("Shutdown functions are not called")
 	}
-}
-
-// to launch before : gcloud beta emulators pubsub start
-func TestPubSubOneTopic(t *testing.T) {
-	projectName := "project"
-	topicName := "topic"
-	subscriptionName := "subscription"
-	ctx := context.TODO()
-
-	c, err := pubsub.NewClient(ctx, projectName)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
-	err = createTopicAndSubscribtion(ctx, c, topicName, subscriptionName)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
-	err = c.Close()
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
-	shutdownCalled := false
-	ctx, cancel := context.WithCancel(context.Background())
-	exitError := make(chan error)
-	tr := NewTransport(ctx, "project").Endpoint(subscriptionName, testEP, Decoder(decode))
-	srv := kitty.NewServer(tr).Shutdown(func() {
-		shutdownCalled = true
-	})
-	go func() {
-		exitError <- srv.Run(ctx)
-	}()
-	for tr.c == nil {
-		time.Sleep(time.Millisecond)
-	}
-
-	sendThenReceiveWithTimeout(ctx, t, tr.c, topicName)
-
-	cancel()
-	select {
-	case <-time.After(10 * time.Second):
-		t.Error("Server.Run has not stopped after 10sec")
-	case err := <-exitError:
-		if err != nil && err != context.Canceled {
-			t.Errorf("Server.Run returned an error : %s", err)
-		}
-	}
-	if !shutdownCalled {
-		t.Error("Shutdown functions are not called")
-	}
-}
-
-// to launch before : gcloud beta emulators pubsub start
-func TestPubSubWithMultipleEndpoints(t *testing.T) {
-	projectName := "project"
-	topic1Name := "topic1"
-	sub1Name := "subscription1"
-	topic2Name := "topic2"
-	sub2Name := "subscription2"
-	ctx := context.TODO()
-
-	c, err := pubsub.NewClient(ctx, projectName)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-	defer c.Close()
-
-	err = createTopicAndSubscribtion(ctx, c, topic1Name, sub1Name)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
-	err = createTopicAndSubscribtion(ctx, c, topic2Name, sub2Name)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
-	shutdownCalled := false
-	ctx, cancel := context.WithCancel(context.Background())
-
-	tr := NewTransport(ctx, "project").
-		Endpoint(sub1Name, testEP, Decoder(decode)).
-		Endpoint(sub2Name, testEP, Decoder(decode))
-	srv := kitty.NewServer(tr).Shutdown(func() {
-		shutdownCalled = true
-	})
-
-	exitError := make(chan error)
-	go func() {
-		exitError <- srv.Run(ctx)
-	}()
-
-	for start := time.Now(); tr.c == nil && time.Since(start) < time.Minute; {
-		// waits until pub/sub client is created in the transport, max 1 minute
-		time.Sleep(time.Millisecond) // avoids too much CPU
-	}
-	if tr.c == nil {
-		t.Error("after 1 minute, the pub/sub client is still not initialized")
-		cancel()
-		return
-	}
-
-	sendThenReceiveWithTimeout(ctx, t, c, topic1Name)
-	sendThenReceiveWithTimeout(ctx, t, c, topic2Name)
-
-	cancel()
-	select {
-	case <-time.After(10 * time.Second):
-		t.Error("Server.Run has not stopped after 10sec")
-	case err := <-exitError:
-		if err != nil && err != context.Canceled {
-			t.Errorf("Server.Run returned an error : %s", err)
-		}
-	}
-	if !shutdownCalled {
-		t.Error("Shutdown functions are not called")
-	}
-}
-
-func sendThenReceiveWithTimeout(ctx context.Context, t *testing.T, c *pubsub.Client, topicName string) {
-	err := send(ctx, topicName, c, []byte(`{"foo":"bar"}`))
-	if err != nil {
-		t.Errorf("send to topic %s: %v", topicName, err)
-		return
-	}
-	select {
-	case <-time.After(10 * time.Second):
-		t.Errorf("pubsub %s no data return after timeout", topicName)
-	case resData := <-testCh:
-		if !reflect.DeepEqual(resData, &testStruct{Foo: "bar", Status: 0}) {
-			t.Errorf("pubsub %s returned invalid data : %+v", topicName, resData)
-		}
-	}
-}
-
-func createTopicAndSubscribtion(ctx context.Context, c *pubsub.Client, topicName, subscriptionName string) error {
-	topic, err := c.CreateTopic(ctx, topicName)
-	if err != nil {
-		return err
-	}
-	_, err = c.CreateSubscription(ctx, subscriptionName, pubsub.SubscriptionConfig{Topic: topic})
-	return err
 }
 
 type testStruct struct {
-	Foo    string `json:"foo"`
-	Status int    `json:"status"`
+	Foo string `json:"foo"`
 }
 
 func decode(ctx context.Context, m *pubsub.Message) (interface{}, error) {
 	d := &testStruct{}
 	err := json.Unmarshal(m.Data, d)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode error: %v", err)
 	}
 	return d, nil
 }
 
 // send sends a message to Pub/Sub topic. The topic must already exist.
-func send(ctx context.Context, topic string, c *pubsub.Client, data []byte) error {
-	t := c.Topic(topic)
-	res := t.Publish(ctx, &pubsub.Message{Data: data})
-	<-res.Ready()
+func send(ctx context.Context, topic string, tr *Transport, data []byte) error {
+	for tr.c == nil {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	res := tr.c.Topic(topic).Publish(ctx, &pubsub.Message{Data: data})
 	_, err := res.Get(ctx)
+	return err
+}
+
+func createTopicAndSub(ctx context.Context, topicName, subscriptionName string) error {
+	c, err := pubsub.NewClient(ctx, project)
+	if err != nil {
+		return err
+	}
+	topic, err := c.CreateTopic(ctx, topicName)
+	if err == nil {
+		_, err = c.CreateSubscription(ctx, subscriptionName, pubsub.SubscriptionConfig{Topic: topic})
+	}
+	if err != nil {
+		return err
+	}
+	err = c.Close()
 	return err
 }
