@@ -41,7 +41,7 @@ func makeTransport(ctx context.Context, errChan chan error) *Transport {
 
 // to launch before : gcloud beta emulators pubsub start
 func TestEndpoint(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	err := createTopicAndSub(ctx, "pub", "sub")
 	if err != nil {
@@ -76,7 +76,7 @@ func TestEndpoint(t *testing.T) {
 
 // to launch before : gcloud beta emulators pubsub start
 func TestServerWithMultipleEndpoints(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	err := createTopicAndSub(ctx, "mpub", "msub")
 	if err != nil {
@@ -139,16 +139,16 @@ func TestServerWithMultipleEndpoints(t *testing.T) {
 
 // to launch before : gcloud beta emulators pubsub start
 func TestErrors(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	err := createTopicAndSub(ctx, "pub", "sub")
+	err := createTopicAndSub(ctx, "epub", "esub")
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
 
 	errChan := make(chan error)
-	tr := makeTransport(ctx, errChan).Endpoint("sub", func(_ context.Context, req interface{}) (interface{}, error) { return nil, errors.New("foo") }, Decoder(decode))
+	tr := makeTransport(ctx, errChan).Endpoint("esub", func(_ context.Context, req interface{}) (interface{}, error) { return nil, errors.New("foo") }, Decoder(decode))
 	go func() {
 		kitty.NewServer(tr).Run(ctx)
 	}()
@@ -185,14 +185,13 @@ func TestErrors(t *testing.T) {
 
 // to launch before : gcloud beta emulators pubsub start
 func TestShutdown(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	err := createTopicAndSub(ctx, "xpub", "xsub")
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
 	shutdownCalled := false
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	exitChan := make(chan error)
 	tr := NewTransport(ctx, project).Endpoint("xsub", func(_ context.Context, req interface{}) (interface{}, error) { return nil, nil })
 	go func() {
@@ -232,7 +231,12 @@ func decode(ctx context.Context, m *pubsub.Message) (interface{}, error) {
 // send sends a message to Pub/Sub topic. The topic must already exist.
 func send(ctx context.Context, topic string, c *pubsub.Client, data []byte) error {
 	for c == nil {
-		time.Sleep(time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			time.Sleep(time.Millisecond)
+		}
 	}
 	t := c.Topic(topic)
 	res := t.Publish(ctx, &pubsub.Message{Data: data})
