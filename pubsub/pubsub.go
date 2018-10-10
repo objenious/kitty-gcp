@@ -12,9 +12,10 @@ import (
 
 // Transport is a transport that receives requests from PubSub
 type Transport struct {
-	projectID string
-	c         *pubsub.Client
-	endpoints []*Endpoint
+	projectID  string
+	c          *pubsub.Client
+	middleware Middleware
+	endpoints  []*Endpoint
 }
 
 var _ kitty.Transport = &Transport{}
@@ -22,7 +23,8 @@ var _ kitty.Transport = &Transport{}
 // NewTransport creates a new Transport for the related Google Cloud Project
 func NewTransport(ctx context.Context, projectID string) *Transport {
 	return &Transport{
-		projectID: projectID,
+		projectID:  projectID,
+		middleware: nopMiddleWare,
 	}
 }
 
@@ -36,6 +38,12 @@ func (t *Transport) Endpoint(subscriptionName string, endpoint endpoint.Endpoint
 		opt(e)
 	}
 	t.endpoints = append(t.endpoints, e)
+	return t
+}
+
+// Middleware sets a Pub/Sub middleware for all endpoint handlers
+func (t *Transport) Middleware(m Middleware) *Transport {
+	t.middleware = m
 	return t
 }
 
@@ -74,17 +82,12 @@ func (t *Transport) consume(ctx context.Context, e *Endpoint) error {
 	if e.numGoRoutines > 0 {
 		e.subscription.ReceiveSettings.NumGoroutines = e.numGoRoutines
 	}
-	return e.subscription.Receive(ctx, makeReceiveFunc(e))
+	return e.subscription.Receive(ctx, t.makeReceiveFunc(e))
 }
 
-func makeReceiveFunc(e *Endpoint) func(ctx context.Context, msg *pubsub.Message) {
-	return func(ctx context.Context, msg *pubsub.Message) {
+func (t *Transport) makeReceiveFunc(e *Endpoint) func(ctx context.Context, msg *pubsub.Message) {
+	handler := func(ctx context.Context, msg *pubsub.Message) error {
 		PopulateRequestContext(ctx, msg)
-		defer func() {
-			if r := recover(); r != nil {
-				msg.Nack()
-			}
-		}()
 		var (
 			dec interface{}
 			err error
@@ -97,6 +100,16 @@ func makeReceiveFunc(e *Endpoint) func(ctx context.Context, msg *pubsub.Message)
 		if err == nil {
 			_, err = e.endpoint(ctx, dec)
 		}
+		return err
+	}
+	handler = t.middleware(handler)
+	return func(ctx context.Context, msg *pubsub.Message) {
+		defer func() {
+			if r := recover(); r != nil {
+				msg.Nack()
+			}
+		}()
+		err := handler(ctx, msg)
 		if kitty.IsRetryable(err) {
 			msg.Nack()
 		} else {
