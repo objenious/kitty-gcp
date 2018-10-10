@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -60,6 +62,8 @@ func TestEndpoint(t *testing.T) {
 			t.Fatalf("send to pubsub : %s", err)
 		}
 		select {
+		case <-ctx.Done():
+			t.Fatal("timeout")
 		case err := <-errChan:
 			t.Errorf("endpoint returned an error: %v", err)
 		case res := <-resChan:
@@ -96,7 +100,7 @@ func TestServerWithMultipleEndpoints(t *testing.T) {
 	}()
 
 	{
-		send(ctx, "pub", tr.c, []byte(`{"foo":"bar"}`))
+		err := send(ctx, "pub", tr.c, []byte(`{"foo":"bar"}`))
 		if err != nil {
 			t.Fatalf("send to pubsub : %s", err)
 		}
@@ -114,7 +118,7 @@ func TestServerWithMultipleEndpoints(t *testing.T) {
 		}
 	}
 	{
-		send(ctx, "pub2", tr.c, []byte(`{"foo":"bar2"}`))
+		err := send(ctx, "pub2", tr.c, []byte(`{"foo":"bar2"}`))
 		if err != nil {
 			t.Fatalf("send to pubsub : %s", err)
 		}
@@ -128,6 +132,52 @@ func TestServerWithMultipleEndpoints(t *testing.T) {
 		case res := <-res2Chan:
 			if res.Foo != "bar2" {
 				t.Errorf("endpoint received invalid data: %+v", res)
+			}
+		}
+	}
+}
+
+// to launch before : gcloud beta emulators pubsub start
+func TestErrors(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err := createTopicAndSub(ctx, "pub", "sub")
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	errChan := make(chan error)
+	tr := makeTransport(ctx, errChan).Endpoint("sub", func(_ context.Context, req interface{}) (interface{}, error) { return nil, errors.New("foo") }, Decoder(decode))
+	go func() {
+		kitty.NewServer(tr).Run(ctx)
+	}()
+
+	{
+		err := send(ctx, "pub", tr.c, []byte(`{"foo":"bar"}`))
+		if err != nil {
+			t.Fatalf("send to pubsub : %s", err)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("timeout")
+		case err := <-errChan:
+			if err.Error() != "foo" {
+				t.Errorf("endpoint returned an invalid error: %v (should have been an endpoint error)", err)
+			}
+		}
+	}
+	{
+		err := send(ctx, "pub", tr.c, []byte(`{"foo":1}`))
+		if err != nil {
+			t.Fatalf("send to pubsub : %s", err)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("timeout")
+		case err := <-errChan:
+			if !strings.HasPrefix(err.Error(), "decode error") {
+				t.Errorf("endpoint returned an invalid error: %v (should have been a decode error)", err)
 			}
 		}
 	}
@@ -174,7 +224,7 @@ func decode(ctx context.Context, m *pubsub.Message) (interface{}, error) {
 	d := &testStruct{}
 	err := json.Unmarshal(m.Data, d)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode error: %v", err)
 	}
 	return d, nil
 }
