@@ -15,19 +15,19 @@ func TestClient(t *testing.T) {
 
 	psc, err := pubsub.NewClient(ctx, "project")
 	if err != nil {
-		t.Error("pubsub new client", err)
+		t.Fatal("pubsub new client", err)
 	}
 
 	topic, err := psc.CreateTopic(ctx, "testclienttopic")
 	if err != nil {
-		t.Error("create topic", err)
+		t.Fatal("create topic", err)
 	}
 
 	sub, err := psc.CreateSubscription(ctx, "testclientsub", pubsub.SubscriptionConfig{
 		Topic: topic,
 	})
 	if err != nil {
-		t.Error("create subscription", err)
+		t.Fatal("create subscription", err)
 	}
 
 	ch := make(chan *pubsub.Message, 1)
@@ -42,7 +42,7 @@ func TestClient(t *testing.T) {
 
 	c, err := NewClient(ctx, "project", topic.ID())
 	if err != nil {
-		t.Error("new client under test", err)
+		t.Fatal("new client under test", err)
 	}
 
 	endp := c.Endpoint()
