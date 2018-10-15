@@ -39,7 +39,7 @@ func TestClient(t *testing.T) {
 	t.Log("send data with the client, test reception")
 	timer := time.NewTimer(10 * time.Second)
 	for i := 0; i < 10; i++ {
-		err = endp(ctx, fmt.Sprintf("hello world! #%d", i))
+		_, err = endp(ctx, fmt.Sprintf("hello world! #%d", i))
 		assert.NoError(t, err)
 		timer.Reset(10 * time.Second)
 		select {

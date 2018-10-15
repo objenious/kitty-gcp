@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"cloud.google.com/go/pubsub"
+	"github.com/go-kit/kit/endpoint"
 )
 
 // Client defines the attributes of the client
@@ -70,8 +71,8 @@ func (c *Client) Close() error {
 }
 
 // Endpoint creates an endpoint
-func (c *Client) Endpoint() func(ctx context.Context, r interface{}) error {
-	return func(ctx context.Context, r interface{}) error {
-		return c.do(ctx, r)
+func (c *Client) Endpoint() endpoint.Endpoint {
+	return func(ctx context.Context, r interface{}) (interface{}, error) {
+		return nil, c.do(ctx, r)
 	}
 }
