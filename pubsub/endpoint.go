@@ -45,8 +45,13 @@ func MaxExtension(d time.Duration) func(e *Endpoint) {
 }
 
 // Synchronous sets the synchronous mode
-func Synchronous(b bool) func(e *Endpoint) {
-	return func(e *Endpoint) { e.synchronous = b }
+func Synchronous() func(e *Endpoint) {
+	return func(e *Endpoint) { e.synchronous = true }
+}
+
+// Asynchronous sets the asynchronous mode
+func Asynchronous() func(e *Endpoint) {
+	return func(e *Endpoint) { e.synchronous = false }
 }
 
 // NumGoRoutines sets the number of Go routines
