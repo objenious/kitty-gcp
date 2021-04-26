@@ -17,8 +17,5 @@ before_script:
   - sleep 15s
   - $(gcloud beta emulators pubsub env-init)
 
-script:
-  - go test -v ./...
-
 after_script:
   - screen -ls | grep emu | awk '{print $1}' | xargs -I{} screen -S {} -X quit
