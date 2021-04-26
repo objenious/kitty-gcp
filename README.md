@@ -2,7 +2,6 @@
 
 [![Travis-CI](https://travis-ci.org/objenious/kitty-gcp.svg?branch=master)](https://travis-ci.org/objenious/kitty-gcp)  [![GoDoc](https://godoc.org/github.com/objenious/kitty-gcp?status.svg)](http://godoc.org/github.com/objenious/kitty-gcp)
 [![GoReportCard](https://goreportcard.com/badge/github.com/objenious/kitty-gcp)](https://goreportcard.com/report/github.com/objenious/kitty-gcp)
-[![Coverage Status](https://coveralls.io/repos/github/objenious/kitty-gcp/badge.svg?branch=master)](https://coveralls.io/github/objenious/kitty-gcp?branch=master)
 
 `go get github.com/objenious/kitty-gcp`
 
