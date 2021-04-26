@@ -4,13 +4,13 @@ go:
   - 1.13.x
   - 1.14.x
   - 1.15.x
+  - 1.16.x
 
 before_install:
   - export CLOUD_SDK_REPO="cloud-sdk-$(lsb_release -c -s)"
   - echo "deb http://packages.cloud.google.com/apt $CLOUD_SDK_REPO main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
   - curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
   - sudo apt-get update && sudo apt-get install -y google-cloud-sdk google-cloud-sdk-pubsub-emulator
-  - go get github.com/mattn/goveralls
 
 before_script:
   - screen -S emu -d -m gcloud beta emulators pubsub start
@@ -18,7 +18,7 @@ before_script:
   - $(gcloud beta emulators pubsub env-init)
 
 script:
-  - $GOPATH/bin/goveralls -service=travis-ci
+  - go test -v ./...
 
 after_script:
   - screen -ls | grep emu | awk '{print $1}' | xargs -I{} screen -S {} -X quit
